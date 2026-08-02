@@ -1,0 +1,10 @@
+{
+  "id": "nazar",
+  "name": "Nazar",
+  "version": "0.1.0",
+  "minAppVersion": "1.8.0",
+  "description": "Run local, scoped agents against your Obsidian vault.",
+  "author": "Alex Radunet",
+  "authorUrl": "https://github.com/alexradunet",
+  "isDesktopOnly": true
+}

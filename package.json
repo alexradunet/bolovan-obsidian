@@ -1,0 +1,27 @@
+{
+  "name": "nazar-obsidian-plugin",
+  "version": "0.1.0",
+  "description": "A local, agentic companion for an Obsidian vault.",
+  "type": "module",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "test": "npm run build && vitest run && node tests/load-built-plugin.cjs"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "typebox": "1.1.38"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.17",
+    "esbuild": "0.25.5",
+    "obsidian": "latest",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}
