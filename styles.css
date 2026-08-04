@@ -1,185 +1,186 @@
-.bolovan-status {
-  color: var(--text-muted);
-}
-
 .bolovan-panel {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
-  gap: var(--size-4-3);
   height: 100%;
-  padding: var(--size-4-3);
+  margin: 0 auto;
+  max-width: 64rem;
+  min-height: 0;
+  padding: var(--size-4-2);
+  width: 100%;
 }
 
 .bolovan-panel__header {
   align-items: center;
   display: flex;
+  flex: 0 0 auto;
   gap: var(--size-4-2);
   justify-content: space-between;
+  padding: var(--size-4-1) 0;
 }
 
-.bolovan-panel__header h2 {
-  margin: 0;
-}
-
-.bolovan-panel__transcript {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: var(--size-4-2);
-  min-height: 12rem;
-  overflow-y: auto;
-  padding: var(--size-4-3);
-}
-
-.bolovan-message {
-  border-radius: var(--radius-m);
-  line-height: var(--line-height-normal);
-  padding: var(--size-4-2) var(--size-4-3);
-  white-space: pre-wrap;
-}
-
-.bolovan-message--assistant {
-  align-self: flex-start;
-  background: var(--background-secondary);
-}
-
-.bolovan-message--user {
-  align-self: flex-end;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-
-.bolovan-panel__tools,
-.bolovan-settings__health {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-}
-
-.bolovan-panel__scope {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
-  padding: var(--size-4-2);
-}
-
-.bolovan-panel__scope-row,
-.bolovan-panel__attachment {
+.bolovan-chat__session-group {
   align-items: center;
   display: flex;
-  gap: var(--size-4-2);
-}
-
-.bolovan-panel__scope-row select {
   flex: 1 1 auto;
+  gap: var(--size-4-1);
+  min-width: 0;
+  width: 100%;
 }
 
-.bolovan-panel__attachments {
-  color: var(--text-muted);
+.bolovan-chat__sessions {
+  flex: 1 1 auto;
+  font-weight: var(--font-semibold);
+  min-width: 0;
+  width: 100%;
+}
+
+.bolovan-chat__new {
+  flex: 0 0 auto;
+}
+
+.bolovan-chat__status {
+  align-items: center;
+  align-self: center;
+  color: var(--text-faint);
   display: flex;
-  flex-direction: column;
+  flex: 0 0 auto;
   font-size: var(--font-ui-smaller);
   gap: var(--size-4-1);
+  padding: var(--size-4-1) var(--size-4-2);
 }
 
-.bolovan-panel__attachment span {
-  flex: 1 1 auto;
-  overflow-wrap: anywhere;
-}
-
-.bolovan-settings__model-details,
-.bolovan-settings__model-status,
-.bolovan-settings__runtime-status {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  margin-bottom: var(--size-4-2);
-}
-
-.bolovan-settings__runtime-logs pre {
-  max-height: 12rem;
-  overflow: auto;
-  white-space: pre-wrap;
-}
-
-.bolovan-settings__model-progress {
-  margin-bottom: var(--size-4-3);
-  width: 100%;
-}
-
-.bolovan-panel__composer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
-}
-
-.bolovan-panel__composer textarea {
-  min-height: 6rem;
-  resize: vertical;
-  width: 100%;
-}
-
-.bolovan-panel__actions {
-  display: flex;
-  gap: var(--size-4-2);
-  justify-content: flex-end;
+.bolovan-panel.is-running .bolovan-chat__status::before {
+  animation: bolovan-pulse 1.4s ease-in-out infinite;
+  background: var(--interactive-accent);
+  border-radius: 50%;
+  content: "";
+  height: 0.45rem;
+  width: 0.45rem;
 }
 
 .bolovan-chat__controls {
   align-items: center;
   display: flex;
+  flex: 0 0 auto;
   gap: var(--size-4-2);
-}
-
-.bolovan-chat__sessions {
-  flex: 1 1 auto;
+  min-width: 0;
+  padding-top: var(--size-4-1);
 }
 
 .bolovan-chat__models {
-  flex: 1 1 auto;
+  flex: 1 1 10rem;
+  min-width: 5rem;
 }
 
 .bolovan-chat__thinking {
-  max-width: 7rem;
+  flex: 0 1 7rem;
+  min-width: 5rem;
 }
 
 .bolovan-chat__stats {
-  color: var(--text-muted);
+  color: var(--text-faint);
+  flex: 0 0 auto;
   font-size: var(--font-ui-smaller);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.bolovan-chat__new {
-  padding: var(--size-4-1) var(--size-4-2);
+.bolovan-chat__controls .mod-cta {
+  flex: 0 0 auto;
 }
 
-.bolovan-message--system {
-  background: transparent;
-  border: 1px dashed var(--background-modifier-border);
-  color: var(--text-muted);
-  font-size: var(--font-ui-small);
+.bolovan-panel__transcript-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
 }
 
-.bolovan-message--assistant > *:first-child {
+.bolovan-panel__transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-4);
+  height: 100%;
+  min-height: 12rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--size-4-4) var(--size-4-1) var(--size-4-6);
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
+
+.bolovan-message {
+  line-height: 1.55;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.bolovan-message--assistant {
+  align-self: stretch;
+  color: var(--text-normal);
+}
+
+.bolovan-message--assistant > :first-child {
   margin-top: 0;
 }
 
-.bolovan-message--assistant > *:last-child {
+.bolovan-message--assistant > :last-child {
   margin-bottom: 0;
 }
 
+.bolovan-message--assistant.is-streaming::after {
+  animation: bolovan-pulse 1.2s ease-in-out infinite;
+  background: var(--interactive-accent);
+  border-radius: 50%;
+  content: "";
+  display: inline-block;
+  height: 0.42rem;
+  margin-left: var(--size-4-1);
+  vertical-align: middle;
+  width: 0.42rem;
+}
+
+.bolovan-message--user {
+  align-self: flex-end;
+  background: var(--background-secondary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l) var(--radius-l) var(--radius-s) var(--radius-l);
+  max-width: 88%;
+  padding: var(--size-4-2) var(--size-4-3);
+  white-space: pre-wrap;
+}
+
+.bolovan-message--system {
+  align-self: center;
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  max-width: 90%;
+  padding: var(--size-4-1) var(--size-4-2);
+  text-align: center;
+  white-space: pre-wrap;
+}
+
 .bolovan-tool {
-  align-items: baseline;
+  align-items: center;
+  align-self: flex-start;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
   color: var(--text-muted);
   display: flex;
+  font-family: var(--font-monospace);
   font-size: var(--font-ui-smaller);
   gap: var(--size-4-2);
-  padding: 0 var(--size-4-2);
+  max-width: 100%;
+  padding: var(--size-4-1) var(--size-4-2);
 }
 
 .bolovan-tool__status {
+  color: var(--text-accent);
+  flex: 0 0 1ch;
   width: 1ch;
 }
 
@@ -187,27 +188,149 @@
   color: var(--text-success);
 }
 
+.bolovan-tool--error {
+  border-color: rgba(var(--color-red-rgb), 0.35);
+}
+
 .bolovan-tool--error .bolovan-tool__status {
   color: var(--text-error);
 }
 
 .bolovan-tool__label {
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bolovan-chat__empty {
+  align-items: center;
+  align-self: center;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  margin: auto;
+  max-width: 30rem;
+  padding: var(--size-4-8) var(--size-4-3);
+  text-align: center;
+}
+
+.bolovan-chat__empty.is-hidden {
+  display: none;
+}
+
+.bolovan-chat__empty-mark {
+  align-items: center;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 50%;
+  color: var(--text-accent);
+  display: flex;
+  height: 2.75rem;
+  justify-content: center;
+  margin-bottom: var(--size-4-2);
+  width: 2.75rem;
+}
+
+.bolovan-chat__empty h3 {
+  margin: var(--size-4-2) 0 0;
+}
+
+.bolovan-chat__empty p {
+  color: var(--text-muted);
+  margin: var(--size-4-2) 0 var(--size-4-4);
+}
+
+.bolovan-chat__suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  width: 100%;
+}
+
+.bolovan-chat__suggestions button {
+  height: auto;
+  padding: var(--size-4-2) var(--size-4-3);
+  text-align: left;
+  white-space: normal;
+}
+
+.bolovan-chat__jump {
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 50%;
+  bottom: var(--size-4-2);
+  box-shadow: var(--shadow-s);
+  left: 50%;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transform: translate(-50%, 0.5rem);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.bolovan-chat__jump.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.bolovan-panel__composer {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-s);
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--size-4-1);
+  padding: var(--size-4-2);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.bolovan-panel__composer:focus-within {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
+.bolovan-panel__composer textarea {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  line-height: var(--line-height-normal);
+  max-height: 15rem;
+  min-height: 2.25rem;
+  overflow-y: auto;
+  padding: var(--size-4-1);
+  resize: none;
+  width: 100%;
+}
+
+.bolovan-panel__composer textarea:focus {
+  border: 0;
+  box-shadow: none;
+}
+
+.bolovan-panel.is-running .bolovan-panel__composer {
+  border-color: var(--background-modifier-border-focus);
 }
 
 .bolovan-dialog__message {
   background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
+  font-family: var(--font-monospace);
   font-size: var(--font-ui-small);
-  max-height: 40vh;
+  line-height: 1.5;
+  max-height: 50vh;
   overflow: auto;
-  padding: var(--size-4-2);
+  padding: var(--size-4-3);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .bolovan-dialog__text {
-  min-height: 6rem;
+  min-height: 7rem;
   width: 100%;
 }
 
@@ -215,5 +338,81 @@
   display: flex;
   gap: var(--size-4-2);
   justify-content: flex-end;
-  margin-top: var(--size-4-3);
+  margin-top: var(--size-4-4);
+}
+
+@container (min-width: 34rem) {
+  .bolovan-panel__header,
+  .bolovan-panel__composer {
+    margin-left: var(--size-4-4);
+    margin-right: var(--size-4-4);
+  }
+
+  .bolovan-panel__transcript {
+    padding-left: var(--size-4-6);
+    padding-right: var(--size-4-6);
+  }
+
+  .bolovan-message--user {
+    max-width: 72%;
+  }
+
+  .bolovan-chat__suggestions {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    max-width: 46rem;
+  }
+}
+
+@container (max-width: 24rem) {
+  .bolovan-panel__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bolovan-chat__session-group {
+    width: 100%;
+  }
+
+  .bolovan-chat__sessions {
+    flex: 1 1 auto;
+  }
+
+  .bolovan-chat__status {
+    min-height: 1rem;
+  }
+
+  .bolovan-chat__controls {
+    flex-wrap: wrap;
+  }
+
+  .bolovan-chat__models {
+    flex-basis: calc(100% - 8rem);
+  }
+
+  .bolovan-chat__stats {
+    margin-right: auto;
+  }
+}
+
+@keyframes bolovan-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bolovan-panel__transcript {
+    scroll-behavior: auto;
+  }
+
+  .bolovan-panel.is-running .bolovan-chat__status::before,
+  .bolovan-message--assistant.is-streaming::after {
+    animation: none;
+    opacity: 1;
+  }
+
+  .bolovan-chat__jump,
+  .bolovan-panel__composer {
+    transition: none;
+  }
 }

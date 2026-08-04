@@ -44,6 +44,12 @@ export default class BolovanPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "open-chat-tab",
+      name: "Open Bolovan chat in new tab",
+      callback: () => void this.openChatTab(),
+    });
+
+    this.addCommand({
       id: "summarize-active-note",
       name: "Summarize active note with Bolovan",
       checkCallback: (checking) => {
@@ -125,6 +131,15 @@ export default class BolovanPlugin extends Plugin {
     if (!leaf) {
       throw new Error("No sidebar available for the Bolovan chat");
     }
+    await leaf.setViewState({ type: BOLOVAN_CHAT_VIEW, active: true });
+    this.app.workspace.revealLeaf(leaf);
+  }
+
+  private async openChatTab(): Promise<void> {
+    const existingLeaf = this.app.workspace.getLeavesOfType(BOLOVAN_CHAT_VIEW)[0];
+    existingLeaf?.detach();
+
+    const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: BOLOVAN_CHAT_VIEW, active: true });
     this.app.workspace.revealLeaf(leaf);
   }

@@ -1,4 +1,4 @@
-import { Component, ItemView, MarkdownRenderer, Modal, WorkspaceLeaf } from "obsidian";
+import { Component, ItemView, MarkdownRenderer, Modal, setIcon, WorkspaceLeaf } from "obsidian";
 import type BolovanPlugin from "./main";
 import type { BolovanEvent, BolovanUiRequest } from "./bolovan-agent";
 import { Transcript, type TranscriptItem } from "./transcript";
@@ -20,13 +20,19 @@ export class BolovanChatView extends ItemView {
   private unsubscribeAgent: (() => void) | undefined;
   private unsubscribeTranscript: (() => void) | undefined;
 
+  private rootEl!: HTMLElement;
   private transcriptEl!: HTMLElement;
+  private emptyEl!: HTMLElement;
+  private jumpButtonEl!: HTMLButtonElement;
   private inputEl!: HTMLTextAreaElement;
   private sendButtonEl!: HTMLButtonElement;
+  private newSessionButtonEl!: HTMLButtonElement;
   private sessionSelectEl!: HTMLSelectElement;
   private modelSelectEl!: HTMLSelectElement;
   private thinkingSelectEl!: HTMLSelectElement;
+  private statusEl!: HTMLElement;
   private statsEl!: HTMLElement;
+  private pinnedToBottom = true;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -90,41 +96,103 @@ export class BolovanChatView extends ItemView {
   }
 
   private buildLayout(): void {
-    const root = this.contentEl.createDiv({ cls: "bolovan-panel" });
+    this.contentEl.empty();
+    this.rootEl = this.contentEl.createDiv({ cls: "bolovan-panel" });
 
-    const header = root.createDiv({ cls: "bolovan-panel__header" });
-    this.sessionSelectEl = header.createEl("select", { cls: "bolovan-chat__sessions" });
-    const newSessionButton = header.createEl("button", {
-      cls: "bolovan-chat__new",
-      attr: { "aria-label": "New Bolovan conversation" },
+    const header = this.rootEl.createDiv({ cls: "bolovan-panel__header" });
+    const sessionGroup = header.createDiv({ cls: "bolovan-chat__session-group" });
+    this.newSessionButtonEl = sessionGroup.createEl("button", {
+      cls: "clickable-icon bolovan-chat__new",
+      attr: { "aria-label": "New conversation", title: "New conversation" },
     });
-    newSessionButton.innerHTML = "+";
-    newSessionButton.addEventListener("click", () => void this.startNewSession());
+    setIcon(this.newSessionButtonEl, "square-pen");
+    this.newSessionButtonEl.addEventListener("click", () => void this.startNewSession());
+
+    this.sessionSelectEl = sessionGroup.createEl("select", {
+      cls: "bolovan-chat__sessions",
+      attr: { "aria-label": "Conversation" },
+    });
     this.sessionSelectEl.addEventListener("change", () => void this.switchToSelectedSession());
 
-    const controls = root.createDiv({ cls: "bolovan-chat__controls" });
-    this.modelSelectEl = controls.createEl("select", { cls: "bolovan-chat__models" });
-    this.thinkingSelectEl = controls.createEl("select", { cls: "bolovan-chat__thinking" });
-    this.statsEl = controls.createSpan({ cls: "bolovan-chat__stats" });
-    this.modelSelectEl.addEventListener("change", () => void this.applyModelSelection());
-    this.thinkingSelectEl.addEventListener("change", () => void this.applyThinkingSelection());
-
-    this.transcriptEl = root.createDiv({ cls: "bolovan-panel__transcript" });
-
-    const composer = root.createDiv({ cls: "bolovan-panel__composer" });
-    this.inputEl = composer.createEl("textarea", {
-      attr: { placeholder: "Ask Bolovan… (Enter to send, Shift+Enter for a new line)" },
+    const transcriptStage = this.rootEl.createDiv({ cls: "bolovan-panel__transcript-stage" });
+    this.transcriptEl = transcriptStage.createDiv({
+      cls: "bolovan-panel__transcript",
+      attr: { role: "log", "aria-live": "polite", "aria-label": "Conversation" },
     });
+    this.transcriptEl.addEventListener("scroll", () => this.onTranscriptScroll());
+    this.buildEmptyState();
+    this.buildStatus();
+
+    this.jumpButtonEl = transcriptStage.createEl("button", {
+      cls: "bolovan-chat__jump clickable-icon",
+      attr: { "aria-label": "Jump to latest message", title: "Jump to latest" },
+    });
+    setIcon(this.jumpButtonEl, "arrow-down");
+    this.jumpButtonEl.addEventListener("click", () => this.scrollToBottom(true));
+
+    const composer = this.rootEl.createDiv({ cls: "bolovan-panel__composer" });
+    this.inputEl = composer.createEl("textarea", {
+      attr: {
+        placeholder: "Ask Bolovan…",
+        rows: "1",
+        "aria-label": "Message Bolovan",
+      },
+    });
+    this.inputEl.addEventListener("input", () => this.resizeComposer());
     this.inputEl.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
         void this.send();
       }
     });
 
-    const actions = composer.createDiv({ cls: "bolovan-panel__actions" });
-    this.sendButtonEl = actions.createEl("button", { cls: "mod-cta", text: "Send" });
+    const controls = composer.createDiv({ cls: "bolovan-chat__controls" });
+    this.modelSelectEl = controls.createEl("select", {
+      cls: "bolovan-chat__models",
+      attr: { "aria-label": "Model", title: "Model" },
+    });
+    this.thinkingSelectEl = controls.createEl("select", {
+      cls: "bolovan-chat__thinking",
+      attr: { "aria-label": "Thinking effort", title: "Thinking effort" },
+    });
+    this.statsEl = controls.createSpan({ cls: "bolovan-chat__stats" });
+    this.modelSelectEl.addEventListener("change", () => void this.applyModelSelection());
+    this.thinkingSelectEl.addEventListener("change", () => void this.applyThinkingSelection());
+
+    this.sendButtonEl = controls.createEl("button", { cls: "mod-cta", text: "Send" });
     this.sendButtonEl.addEventListener("click", () => void this.onSendButton());
+  }
+
+  private buildEmptyState(): void {
+    this.emptyEl = this.transcriptEl.createDiv({ cls: "bolovan-chat__empty" });
+    const mark = this.emptyEl.createDiv({ cls: "bolovan-chat__empty-mark" });
+    setIcon(mark, "sparkles");
+    this.emptyEl.createEl("h3", { text: "Work with your vault" });
+    this.emptyEl.createEl("p", {
+      text: "Ask questions, improve notes, or turn an idea into action.",
+    });
+
+    const suggestions = this.emptyEl.createDiv({ cls: "bolovan-chat__suggestions" });
+    for (const prompt of [
+      "Summarize my active note",
+      "Help me organize my inbox",
+      "Find connections between my notes",
+    ]) {
+      const button = suggestions.createEl("button", { text: prompt });
+      button.addEventListener("click", () => {
+        this.inputEl.value = prompt;
+        this.resizeComposer();
+        this.inputEl.focus();
+      });
+    }
+  }
+
+  private buildStatus(): void {
+    this.statusEl = this.transcriptEl.createDiv({
+      cls: "bolovan-chat__status",
+      attr: { role: "status", "aria-live": "polite" },
+      text: "Waiting for your input",
+    });
   }
 
   // ----- transcript adapter ----------------------------------------------
@@ -138,6 +206,9 @@ export class BolovanChatView extends ItemView {
     this.itemEls.clear();
     this.assistantPaintScheduled.clear();
     this.transcriptEl.empty();
+    this.buildEmptyState();
+    this.buildStatus();
+    this.pinnedToBottom = true;
 
     try {
       this.transcript.loadHistory(await agent.getMessages());
@@ -145,6 +216,7 @@ export class BolovanChatView extends ItemView {
       this.transcript.note(describeError(error));
     }
     this.setRunning(agent.status().isRunning);
+    this.updateEmptyState();
     this.scrollToBottom(true);
   }
 
@@ -173,8 +245,10 @@ export class BolovanChatView extends ItemView {
     } else {
       el = this.transcriptEl.createDiv({ cls: `bolovan-message bolovan-message--${item.kind}` });
     }
+    this.transcriptEl.insertBefore(el, this.statusEl);
+    this.updateEmptyState();
     this.paintItem(item, el);
-    this.scrollToBottom(true);
+    this.scrollToBottom(false);
     return el;
   }
 
@@ -182,8 +256,9 @@ export class BolovanChatView extends ItemView {
     if (item.kind === "assistant") {
       this.assistantPaintScheduled.delete(item.id);
       el.empty();
-      void MarkdownRenderer.render(this.app, item.markdown || "…", el, "", this.component);
-      this.scrollToBottom(false);
+      el.toggleClass("is-streaming", !item.finalized);
+      void MarkdownRenderer.render(this.app, item.markdown || "…", el, "", this.component)
+        .then(() => this.scrollToBottom(false));
       return;
     }
 
@@ -214,8 +289,9 @@ export class BolovanChatView extends ItemView {
         return;
       }
       el.empty();
-      void MarkdownRenderer.render(this.app, item.markdown || "…", el, "", this.component);
-      this.scrollToBottom(false);
+      el.addClass("is-streaming");
+      void MarkdownRenderer.render(this.app, item.markdown || "…", el, "", this.component)
+        .then(() => this.scrollToBottom(false));
     }, RENDER_THROTTLE_MS);
   }
 
@@ -251,7 +327,12 @@ export class BolovanChatView extends ItemView {
   }
 
   private setRunning(running: boolean): void {
+    this.rootEl.toggleClass("is-running", running);
     this.sendButtonEl.setText(running ? "Stop" : "Send");
+    this.sendButtonEl.setAttr("aria-label", running ? "Stop response" : "Send message");
+    this.statusEl.setText(running ? "Working…" : "Waiting for your input");
+    this.sessionSelectEl.disabled = running;
+    this.newSessionButtonEl.disabled = running;
   }
 
   // ----- composer ----------------------------------------------------------
@@ -262,6 +343,7 @@ export class BolovanChatView extends ItemView {
       return;
     }
     this.inputEl.value = "";
+    this.resizeComposer();
     this.transcript.say(text);
     this.scrollToBottom(true);
 
@@ -420,22 +502,42 @@ export class BolovanChatView extends ItemView {
       const tokens = stats.tokens?.total ?? 0;
       const cost = stats.cost ?? 0;
       const context = stats.contextUsage?.percent;
-      const contextPart = typeof context === "number" ? ` · ${context}% context` : "";
-      this.statsEl.setText(`${formatTokens(tokens)} tokens · $${cost.toFixed(3)}${contextPart}`);
+      const usageDetail = `${formatTokens(tokens)} tokens · $${cost.toFixed(3)}`;
+      this.statsEl.setText(typeof context === "number" ? `${context}% context` : "Context —");
+      this.statsEl.setAttr("title", usageDetail);
+      this.statsEl.setAttr("aria-label", `${this.statsEl.textContent}. ${usageDetail}`);
     } catch {
       this.statsEl.setText("");
     }
   }
 
+  private resizeComposer(): void {
+    this.inputEl.style.height = "auto";
+    this.inputEl.style.height = `${Math.min(this.inputEl.scrollHeight, 240)}px`;
+  }
+
+  private updateEmptyState(): void {
+    this.emptyEl.toggleClass("is-hidden", this.transcript.all().length > 0);
+  }
+
+  private onTranscriptScroll(): void {
+    const distanceFromBottom =
+      this.transcriptEl.scrollHeight - this.transcriptEl.scrollTop - this.transcriptEl.clientHeight;
+    this.pinnedToBottom = distanceFromBottom < 48;
+    this.jumpButtonEl.toggleClass("is-visible", !this.pinnedToBottom);
+  }
+
   private scrollToBottom(force: boolean): void {
-    const el = this.transcriptEl;
-    if (!el) {
+    if (!this.transcriptEl) {
       return;
     }
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (force || nearBottom) {
-      el.scrollTop = el.scrollHeight;
+    if (force) {
+      this.pinnedToBottom = true;
     }
+    if (this.pinnedToBottom) {
+      this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+    }
+    this.jumpButtonEl?.toggleClass("is-visible", !this.pinnedToBottom);
   }
 }
 
@@ -496,7 +598,7 @@ class BolovanDialogModal extends Modal {
     reject.addEventListener("click", () => this.answer({ confirmed: false }));
     const approve = actions.createEl("button", { cls: "mod-cta", text: "Approve" });
     approve.addEventListener("click", () => this.answer({ confirmed: true }));
-    approve.focus();
+    reject.focus();
   }
 
   private buildSelect(): void {

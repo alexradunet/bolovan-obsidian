@@ -6,10 +6,13 @@ Requires the `pi` CLI installed on the machine. Conversations persist in pi's sh
 
 ## Commands
 
-- **Open Bolovan chat** (also the ribbon icon) — sidebar chat over the active pi session: streaming Markdown, tool calls, model and thinking-level switching, session picker, steering while a run is active, Stop. The pi process lives while the view is open. Extension dialogs — including the vault's write-approval gate — appear as Obsidian modals.
+- **Open Bolovan chat** (also the ribbon icon) — adaptive sidebar chat over the active pi session: streaming Markdown, tool calls, model and thinking-level switching, session picker, steering while a run is active, and Stop.
+- **Open Bolovan chat in new tab** — moves the same conversation into a spacious editor tab. Bolovan keeps one chat surface and one active conversation rather than duplicating the session across leaves.
 - **Summarize active note with Bolovan** — asks the agent, in the chat, to read and summarize the open note.
 - **Stop current agent run** — aborts the running agent.
 - **Start a new Bolovan conversation** — starts a fresh session.
+
+The pi process lives while the chat view is open. Extension dialogs — including the vault's write-approval gate — appear as Obsidian modals.
 
 Settings: an optional explicit `pi` binary path, used when `PATH` lookup is not enough (common when Obsidian's desktop environment differs from your shell).
 
