@@ -51,7 +51,8 @@ These are requirements, not suggestions:
 
 - The private alpha targets Obsidian Desktop on Linux x86_64.
 - Nazar runs [pi](https://pi.dev) in RPC mode as a child process. The plugin agent has the same capabilities as `pi` run interactively in the vault: same tools, same config discovery, same model layer, same trust machinery. See `docs/adr/0001-rpc-parity.md`.
-- Runs are user-triggered. One run at a time. There is no resident agent process between runs.
+- Runs are user-triggered. One run at a time. There is no resident agent process between runs, except while the chat view is open: the sidebar chat keeps the pi process alive while the view is open and kills it when the view closes.
+- There is one active Nazar conversation. The chat view shows it and plugin commands (summarize, stop, new conversation) act on the same session.
 - Inference, model selection, tools, extensions, skills, and project trust are delegated to pi. Nazar owns none of them.
 - Conversations persist in pi's shared session store. Nazar tracks its own session lineage and never resumes another session implicitly.
 - The plugin renders every tool execution visibly and provides cancel. There is no approval gate in the plugin; if one is ever needed it is built as a pi extension shared by TUI and plugin.
@@ -70,7 +71,7 @@ These are requirements, not suggestions:
 
 ## Verification
 
-- Test session lineage tracking, streaming, cancellation, and visible failure paths.
+- Test session lineage tracking, streaming, cancellation, visible failure paths, and the long-lived process (multiple runs over one connection).
 - Integration tests spawn a real `pi` process against a synthetic vault and an isolated pi config dir with a fake model server. Never require a real personal vault.
 - Tests should survive internal refactors when the module interface and behavior remain unchanged.
 - Tests must not read or modify the user's vault or the user's real pi config.

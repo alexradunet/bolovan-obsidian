@@ -6,9 +6,10 @@ Requires the `pi` CLI installed on the machine. Conversations persist in pi's sh
 
 ## Commands
 
-- **Summarize active note with Nazar** — asks the agent to read and summarize the open note.
+- **Open Nazar chat** (also the ribbon icon) — sidebar chat over the active pi session: streaming Markdown, tool calls, model and thinking-level switching, session picker, steering while a run is active, Stop. The pi process lives while the view is open.
+- **Summarize active note with Nazar** — asks the agent, in the chat, to read and summarize the open note.
 - **Stop current agent run** — aborts the running agent.
-- **Start a new Nazar conversation** — drops the tracked session so the next run starts fresh.
+- **Start a new Nazar conversation** — starts a fresh session.
 
 Settings: an optional explicit `pi` binary path, used when `PATH` lookup is not enough (common when Obsidian's desktop environment differs from your shell).
 

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { createJsonlReader } from "./jsonl";
@@ -23,12 +23,35 @@ export interface NazarAgentOptions {
 
 export type NazarEvent =
   | { type: "text"; delta: string }
-  | { type: "tool-start"; name: string }
-  | { type: "tool-end"; name: string; isError: boolean };
+  | { type: "tool-start"; name: string; args: Record<string, unknown> }
+  | { type: "tool-end"; name: string; isError: boolean }
+  | { type: "settled" }
+  | { type: "exited"; message: string };
 
 export interface NazarAgentStatus {
   isRunning: boolean;
   sessionFile: string | undefined;
+}
+
+export interface NazarModelState {
+  provider: string;
+  modelId: string;
+  thinkingLevel: string;
+  sessionFile: string | undefined;
+  messageCount: number;
+  isStreaming: boolean;
+}
+
+export interface NazarModelInfo {
+  provider: string;
+  id: string;
+  name: string;
+}
+
+export interface NazarSessionSummary {
+  path: string;
+  modifiedMs: number;
+  label: string;
 }
 
 interface PendingCommand {
@@ -45,12 +68,22 @@ interface RpcResponse {
   error?: string;
 }
 
+/**
+ * Long-lived RPC client for one pi process. The process starts with start()
+ * (or implicitly on the first ask) and stays alive until stop(), so chat
+ * sessions can stream, steer, and switch models. One run at a time; steering
+ * is the only message accepted while running.
+ */
 export class NazarAgent {
   private child: ChildProcessWithoutNullStreams | undefined;
+  private send: ((command: object) => void) | undefined;
   private stderrTail = "";
   private resolvedCommand: string | undefined;
   private pending = new Map<string, PendingCommand>();
+  private listeners = new Set<(event: NazarEvent) => void>();
+  private runController: ReturnType<typeof createRunController> | undefined;
   private running = false;
+  private stopping = false;
   private sessionFile: string | undefined;
 
   private constructor(private readonly options: NazarAgentOptions) {
@@ -62,77 +95,91 @@ export class NazarAgent {
     return new NazarAgent(options);
   }
 
+  subscribe(listener: (event: NazarEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
   status(): NazarAgentStatus {
     return { isRunning: this.running, sessionFile: this.sessionFile };
   }
 
-  /** Drop the tracked session lineage; the next run starts a fresh session. */
-  resetSession(): void {
-    this.sessionFile = undefined;
-    this.options.onSessionFile?.("");
+  started(): boolean {
+    return this.child !== undefined;
   }
 
-  async ask(prompt: string, onEvent: (event: NazarEvent) => void): Promise<void> {
-    if (this.running) {
-      throw new Error("Nazar is already running");
+  /** Spawn the pi process and complete the startup handshake. Idempotent. */
+  async start(): Promise<NazarModelState> {
+    if (this.child) {
+      return this.getState();
     }
 
-    this.running = true;
     this.stderrTail = "";
-
-    const command = findPiBinary({ piPath: this.options.piPath });
-    if (!command) {
-      this.running = false;
-      throw new Error(
-        "pi binary not found. Install pi (https://pi.dev) or set the binary path in Nazar settings. " +
-          "Searched PATH and the common install locations.",
-      );
-    }
-    if (command !== "pi" && !existsSync(command)) {
-      this.running = false;
-      throw new Error(`pi binary not found at the configured path: ${command}`);
-    }
+    const command = this.resolveCommand();
     this.resolvedCommand = command;
 
     const child = this.spawnPi(command);
     this.child = child;
-    const send = makeSender(child);
+    this.send = makeSender(child);
 
-    // One reader spans the whole run: handshake response, prompt response,
-    // streamed events, and the settled signal all arrive on the same stdout.
-    const run = createRunController();
     child.on("error", (error) => {
-      // ENOENT/EACCES surface here, not as an exit. Without this handler the
-      // error is unhandled and the run would sit until the handshake timeout.
       const wrapped = new Error(`pi could not be started: ${error.message}. ${this.failureDetail()}`);
-      this.rejectAllPending(wrapped);
-      run.fail(wrapped);
+      this.teardown(wrapped);
     });
-    const reader = attachEventReader(child, send, this.pending, {
-      onEvent,
-      onSettled: run.settle,
-      onExit: (code) => {
-        const error = new Error(`pi exited during the run (code ${code}). ${this.failureDetail()}`);
-        this.rejectAllPending(error);
-        run.fail(error);
-      },
+    child.on("exit", (code) => {
+      const message = `pi exited (code ${code}). ${this.failureDetail()}`;
+      const intentional = this.stopping;
+      this.teardown(new Error(message));
+      if (!intentional) {
+        this.emit({ type: "exited", message });
+      }
     });
+    attachEventReader(child, this.send, this.pending, (event) => this.emit(event));
+
+    const state = await this.handshake();
+    this.trackSessionFile(state.sessionFile);
+    return this.awaitModel();
+  }
+
+  /** pi resolves the model shortly after startup; wait until get_state sees it. */
+  private async awaitModel(): Promise<NazarModelState> {
+    let state = await this.getState();
+    for (let attempt = 0; attempt < 25 && state.modelId === "unknown"; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      state = await this.getState();
+    }
+    return state;
+  }
+
+  async ask(prompt: string): Promise<void> {
+    if (this.running) {
+      throw new Error("Nazar is already running");
+    }
+    await this.start();
+
+    this.running = true;
+    const run = createRunController();
+    this.runController = run;
 
     try {
-      const state = await this.handshake(send);
-      this.trackSessionFile(state?.sessionFile);
-      await sendCommand(send, this.pending, { type: "prompt", message: prompt });
+      await this.command({ type: "prompt", message: prompt });
       await run.outcome;
       if (!this.sessionFile) {
         // Fresh sessions only get a file once something happened; ask again.
-        const finalState = await sendCommand(send, this.pending, { type: "get_state" });
-        this.trackSessionFile(finalState.data?.sessionFile);
+        const state = await this.getState();
+        this.trackSessionFile(state.sessionFile);
       }
     } finally {
-      reader.detach();
-      this.killChild();
+      this.runController = undefined;
       this.running = false;
     }
+  }
+
+  /** Queue a steering message while a run is active. */
+  async steer(message: string): Promise<void> {
+    await this.command({ type: "steer", message });
   }
 
   async cancel(): Promise<void> {
@@ -156,12 +203,129 @@ export class NazarAgent {
     killTimer.unref?.();
   }
 
-  dispose(): void {
+  /** Kill the process; the agent can be started again. */
+  stop(): void {
     this.killChild();
-    this.running = false;
   }
 
-  private async handshake(send: (command: object) => void): Promise<any> {
+  dispose(): void {
+    this.killChild();
+    this.listeners.clear();
+  }
+
+  async getState(): Promise<NazarModelState> {
+    const response = await this.command({ type: "get_state" });
+    const data = response.data ?? {};
+    return {
+      provider: data.model?.provider ?? "unknown",
+      modelId: data.model?.id ?? "unknown",
+      thinkingLevel: data.thinkingLevel ?? "off",
+      sessionFile: data.sessionFile,
+      messageCount: data.messageCount ?? 0,
+      isStreaming: data.isStreaming === true,
+    };
+  }
+
+  async getMessages(): Promise<any[]> {
+    const response = await this.command({ type: "get_messages" });
+    return response.data?.messages ?? [];
+  }
+
+  async getStats(): Promise<any> {
+    const response = await this.command({ type: "get_session_stats" });
+    return response.data ?? {};
+  }
+
+  async listModels(): Promise<NazarModelInfo[]> {
+    const response = await this.command({ type: "get_available_models" });
+    const models = response.data?.models ?? [];
+    return models.map((model: any) => ({
+      provider: model.provider ?? "unknown",
+      id: model.id ?? "unknown",
+      name: model.name ?? model.id ?? "unknown",
+    }));
+  }
+
+  async setModel(provider: string, modelId: string): Promise<void> {
+    await this.command({ type: "set_model", provider, modelId });
+  }
+
+  async listThinkingLevels(): Promise<string[]> {
+    const response = await this.command({ type: "get_available_thinking_levels" });
+    return response.data?.levels ?? ["off"];
+  }
+
+  async setThinkingLevel(level: string): Promise<void> {
+    await this.command({ type: "set_thinking_level", level });
+  }
+
+  /** Start a fresh pi session; returns the new session file once known. */
+  async newSession(): Promise<string | undefined> {
+    await this.command({ type: "new_session" });
+    const state = await this.getState();
+    this.trackSessionFile(state.sessionFile);
+    return state.sessionFile;
+  }
+
+  async switchSession(sessionPath: string): Promise<void> {
+    await this.command({ type: "switch_session", sessionPath });
+    const state = await this.getState();
+    this.trackSessionFile(state.sessionFile);
+  }
+
+  /** Drop the tracked session lineage; the next start creates a fresh session. */
+  resetSession(): void {
+    this.sessionFile = undefined;
+    this.options.onSessionFile?.("");
+  }
+
+  /** Sessions stored for this vault, newest first. */
+  listSessions(): NazarSessionSummary[] {
+    const dir = join(this.sessionsRoot(), vaultSessionDirName(this.options.cwd));
+    if (!existsSync(dir)) {
+      return [];
+    }
+
+    const summaries: NazarSessionSummary[] = [];
+    for (const entry of readdirSync(dir)) {
+      if (!entry.endsWith(".jsonl")) {
+        continue;
+      }
+      const path = join(dir, entry);
+      let modifiedMs = 0;
+      try {
+        modifiedMs = statSync(path).mtimeMs;
+      } catch {
+        continue;
+      }
+      summaries.push({ path, modifiedMs, label: sessionLabel(entry) });
+    }
+
+    return summaries.sort((a, b) => b.modifiedMs - a.modifiedMs);
+  }
+
+  private resolveCommand(): string {
+    const command = findPiBinary({ piPath: this.options.piPath });
+    if (!command) {
+      throw new Error(
+        "pi binary not found. Install pi (https://pi.dev) or set the binary path in Nazar settings. " +
+          "Searched PATH and the common install locations.",
+      );
+    }
+    if (command !== "pi" && !existsSync(command)) {
+      throw new Error(`pi binary not found at the configured path: ${command}`);
+    }
+    return command;
+  }
+
+  private async command(command: Record<string, unknown>): Promise<RpcResponse> {
+    if (!this.send) {
+      throw new Error("Nazar is not connected to pi");
+    }
+    return sendCommand(this.send, this.pending, command);
+  }
+
+  private async handshake(): Promise<any> {
     const timeout = new Promise<never>((_resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error(`pi did not answer the startup handshake in time. ${this.failureDetail()}`));
@@ -169,11 +333,11 @@ export class NazarAgent {
       timer.unref?.();
     });
 
-    const state = await Promise.race([
-      sendCommand(send, this.pending, { type: "get_state" }),
+    const response = await Promise.race([
+      this.command({ type: "get_state" }),
       timeout,
     ]);
-    return state.data;
+    return response.data ?? {};
   }
 
   private spawnPi(command: string): ChildProcessWithoutNullStreams {
@@ -196,11 +360,26 @@ export class NazarAgent {
     return child;
   }
 
-  private rejectAllPending(error: Error): void {
+  private emit(event: NazarEvent): void {
+    if (event.type === "settled") {
+      this.runController?.settle();
+    }
+    for (const listener of this.listeners) {
+      listener(event);
+    }
+  }
+
+  /** Fail everything in flight after the process dies or cannot start. */
+  private teardown(error: Error): void {
+    this.child = undefined;
+    this.send = undefined;
+    this.running = false;
     for (const entry of this.pending.values()) {
       entry.reject(error);
     }
     this.pending.clear();
+    this.runController?.fail(error);
+    this.runController = undefined;
   }
 
   private trackSessionFile(sessionFile: string | undefined): void {
@@ -213,11 +392,21 @@ export class NazarAgent {
 
   private killChild(): void {
     const child = this.child;
-    this.child = undefined;
-    this.rejectAllPending(new Error("Nazar stopped"));
+    this.stopping = true;
+    this.teardown(new Error("Nazar stopped"));
     if (child && child.exitCode === null) {
       child.kill("SIGTERM");
     }
+    // Reset after the exit event has had a chance to observe the flag.
+    setTimeout(() => {
+      this.stopping = false;
+    }, 100).unref?.();
+  }
+
+  private sessionsRoot(): string {
+    const env = { ...process.env, ...this.options.env };
+    const agentDir = env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+    return join(agentDir, "sessions");
   }
 
   private failureDetail(): string {
@@ -225,6 +414,22 @@ export class NazarAgent {
     const detail = this.stderrTail.trim();
     return detail ? `Tried ${command}. ${detail}` : `Tried ${command}.`;
   }
+}
+
+/** pi stores sessions under a directory derived from the cwd with a trailing
+ * separator: slashes become dashes and the result is wrapped in dashes. */
+export function vaultSessionDirName(cwd: string): string {
+  const normalized = `${cwd.replace(/\/+$/, "")}/`;
+  return `-${normalized.replaceAll("/", "-")}-`;
+}
+
+/** Session files are named after their creation timestamp; use it as a label. */
+function sessionLabel(fileName: string): string {
+  const match = fileName.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})/);
+  if (!match) {
+    return fileName;
+  }
+  return `${match[1]} ${match[2]}:${match[3]}:${match[4]}`;
 }
 
 /**
@@ -344,18 +549,12 @@ async function sendCommand(
   return response;
 }
 
-interface ReaderHooks {
-  onEvent(event: NazarEvent): void;
-  onSettled(): void;
-  onExit(code: number | null): void;
-}
-
 function attachEventReader(
   child: ChildProcessWithoutNullStreams,
   send: (command: object) => void,
   pending: Map<string, PendingCommand>,
-  hooks: ReaderHooks,
-): { detach(): void } {
+  onEvent: (event: NazarEvent) => void,
+): void {
   const feed = createJsonlReader((line) => {
     let record: any;
     try {
@@ -389,25 +588,12 @@ function attachEventReader(
 
     const nazarEvent = toNazarEvent(record);
     if (nazarEvent) {
-      hooks.onEvent(nazarEvent);
-    }
-    if (record?.type === "agent_settled") {
-      hooks.onSettled();
+      onEvent(nazarEvent);
     }
   });
 
-  const onData = (chunk: Buffer) => feed(chunk.toString("utf8"));
-  const onExit = (code: number | null) => hooks.onExit(code);
-
-  child.stdout.on("data", onData);
-  child.on("exit", onExit);
-
-  return {
-    detach() {
-      child.stdout.off("data", onData);
-      child.off("exit", onExit);
-    },
-  };
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk: Buffer) => feed(chunk.toString("utf8")));
 }
 
 function toNazarEvent(record: any): NazarEvent | undefined {
@@ -420,7 +606,11 @@ function toNazarEvent(record: any): NazarEvent | undefined {
   }
 
   if (record?.type === "tool_execution_start") {
-    return { type: "tool-start", name: record.toolName ?? "unknown" };
+    return {
+      type: "tool-start",
+      name: record.toolName ?? "unknown",
+      args: record.args ?? {},
+    };
   }
 
   if (record?.type === "tool_execution_end") {
@@ -429,6 +619,10 @@ function toNazarEvent(record: any): NazarEvent | undefined {
       name: record.toolName ?? "unknown",
       isError: record.isError === true,
     };
+  }
+
+  if (record?.type === "agent_settled") {
+    return { type: "settled" };
   }
 
   return undefined;

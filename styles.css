@@ -1,3 +1,196 @@
 .nazar-status {
   color: var(--text-muted);
 }
+
+.nazar-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+  height: 100%;
+  padding: var(--size-4-3);
+}
+
+.nazar-panel__header {
+  align-items: center;
+  display: flex;
+  gap: var(--size-4-2);
+  justify-content: space-between;
+}
+
+.nazar-panel__header h2 {
+  margin: 0;
+}
+
+.nazar-panel__transcript {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  min-height: 12rem;
+  overflow-y: auto;
+  padding: var(--size-4-3);
+}
+
+.nazar-message {
+  border-radius: var(--radius-m);
+  line-height: var(--line-height-normal);
+  padding: var(--size-4-2) var(--size-4-3);
+  white-space: pre-wrap;
+}
+
+.nazar-message--assistant {
+  align-self: flex-start;
+  background: var(--background-secondary);
+}
+
+.nazar-message--user {
+  align-self: flex-end;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.nazar-panel__tools,
+.nazar-settings__health {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.nazar-panel__scope {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2);
+}
+
+.nazar-panel__scope-row,
+.nazar-panel__attachment {
+  align-items: center;
+  display: flex;
+  gap: var(--size-4-2);
+}
+
+.nazar-panel__scope-row select {
+  flex: 1 1 auto;
+}
+
+.nazar-panel__attachments {
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  font-size: var(--font-ui-smaller);
+  gap: var(--size-4-1);
+}
+
+.nazar-panel__attachment span {
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.nazar-settings__model-details,
+.nazar-settings__model-status,
+.nazar-settings__runtime-status {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-bottom: var(--size-4-2);
+}
+
+.nazar-settings__runtime-logs pre {
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.nazar-settings__model-progress {
+  margin-bottom: var(--size-4-3);
+  width: 100%;
+}
+
+.nazar-panel__composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.nazar-panel__composer textarea {
+  min-height: 6rem;
+  resize: vertical;
+  width: 100%;
+}
+
+.nazar-panel__actions {
+  display: flex;
+  gap: var(--size-4-2);
+  justify-content: flex-end;
+}
+
+.nazar-chat__controls {
+  align-items: center;
+  display: flex;
+  gap: var(--size-4-2);
+}
+
+.nazar-chat__sessions {
+  flex: 1 1 auto;
+}
+
+.nazar-chat__models {
+  flex: 1 1 auto;
+}
+
+.nazar-chat__thinking {
+  max-width: 7rem;
+}
+
+.nazar-chat__stats {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+}
+
+.nazar-chat__new {
+  padding: var(--size-4-1) var(--size-4-2);
+}
+
+.nazar-message--system {
+  background: transparent;
+  border: 1px dashed var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.nazar-message--assistant > *:first-child {
+  margin-top: 0;
+}
+
+.nazar-message--assistant > *:last-child {
+  margin-bottom: 0;
+}
+
+.nazar-tool {
+  align-items: baseline;
+  color: var(--text-muted);
+  display: flex;
+  font-size: var(--font-ui-smaller);
+  gap: var(--size-4-2);
+  padding: 0 var(--size-4-2);
+}
+
+.nazar-tool__status {
+  width: 1ch;
+}
+
+.nazar-tool--done .nazar-tool__status {
+  color: var(--text-success);
+}
+
+.nazar-tool--error .nazar-tool__status {
+  color: var(--text-error);
+}
+
+.nazar-tool__label {
+  overflow-wrap: anywhere;
+}

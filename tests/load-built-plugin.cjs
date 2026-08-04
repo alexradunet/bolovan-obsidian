@@ -14,6 +14,12 @@ Module._load = function loadWithObsidianStub(request, parent, isMain) {
       Setting: class Setting {},
       TFile: class TFile {},
       FileSystemAdapter: class FileSystemAdapter {},
+      ItemView: class ItemView {},
+      Component: class Component {
+        load() {}
+        unload() {}
+      },
+      MarkdownRenderer: { render: async () => undefined },
       normalizePath: (value) => value,
     };
   }

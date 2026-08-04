@@ -47,17 +47,23 @@ describe("NazarAgent over pi RPC", () => {
       });
 
       const events: NazarEvent[] = [];
-      await agent.ask("Summarize today's journal.", (event) => events.push(event));
+      agent.subscribe((event) => events.push(event));
+      await agent.ask("Summarize today's journal.");
 
       expect(agent.status().isRunning).toBe(false);
 
-      const toolRuns = events.filter((event) => event.type !== "text");
-      expect(toolRuns).toContainEqual({ type: "tool-start", name: "read" });
+      const toolRuns = events.filter((event) => event.type.startsWith("tool-"));
+      expect(toolRuns).toContainEqual({
+        type: "tool-start",
+        name: "read",
+        args: { path: "Journal/Today.md" },
+      });
       expect(toolRuns).toContainEqual({
         type: "tool-end",
         name: "read",
         isError: false,
       });
+      expect(events.some((event) => event.type === "settled")).toBe(true);
 
       const text = events
         .filter((event): event is { type: "text"; delta: string } => event.type === "text")
@@ -65,7 +71,6 @@ describe("NazarAgent over pi RPC", () => {
         .join("");
       expect(text).toContain("A grounded summary.");
 
-      // A fresh run must report its session file for lineage tracking.
       expect(sessionFileReported).toBeTruthy();
       expect(agent.status().sessionFile).toBe(sessionFileReported);
       await expect(readFile(sessionFileReported!, "utf8")).resolves.toContain("Summarize");
@@ -73,7 +78,34 @@ describe("NazarAgent over pi RPC", () => {
   );
 
   it(
-    "resumes the tracked session lineage across runs",
+    "keeps the process alive across runs",
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const environment = await createTestEnvironment();
+      const agent = await createAgent({
+        cwd: environment.vaultDir,
+        env: agentEnv(environment),
+      });
+
+      let settledCount = 0;
+      agent.subscribe((event) => {
+        if (event.type === "settled") {
+          settledCount += 1;
+        }
+      });
+
+      await agent.ask("First question.");
+      const stateBetweenRuns = await agent.getState();
+      await agent.ask("Second question.");
+
+      expect(settledCount).toBe(2);
+      expect(agent.started()).toBe(true);
+      expect(stateBetweenRuns.messageCount).toBeGreaterThan(0);
+    },
+  );
+
+  it(
+    "resumes the tracked session lineage across agent instances",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
       const environment = await createTestEnvironment();
@@ -86,9 +118,10 @@ describe("NazarAgent over pi RPC", () => {
           sessionFileReported = sessionFile;
         },
       });
-      await firstAgent.ask("First question.", () => undefined);
+      await firstAgent.ask("First question.");
       const trackedSessionFile = sessionFileReported;
       expect(trackedSessionFile).toBeTruthy();
+      firstAgent.stop();
 
       const secondAgent = await createAgent({
         cwd: environment.vaultDir,
@@ -96,12 +129,11 @@ describe("NazarAgent over pi RPC", () => {
         sessionFile: trackedSessionFile,
       });
       const events: NazarEvent[] = [];
-      await secondAgent.ask("Second question.", (event) => events.push(event));
+      secondAgent.subscribe((event) => events.push(event));
+      await secondAgent.ask("Second question.");
 
-      // Lineage stays on the tracked session file.
       expect(secondAgent.status().sessionFile).toBe(trackedSessionFile);
 
-      // The resumed run sends the earlier conversation back to the model.
       const bodies = environment.requestBodies;
       expect(bodies.length).toBeGreaterThanOrEqual(3);
       const firstRunFirstRequest = bodies[0];
@@ -110,6 +142,31 @@ describe("NazarAgent over pi RPC", () => {
         firstRunFirstRequest.messages.length,
       );
       expect(JSON.stringify(secondRunFirstRequest)).toContain("First question.");
+    },
+  );
+
+  it(
+    "lists vault sessions and starts a fresh lineage",
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const environment = await createTestEnvironment();
+      const agent = await createAgent({
+        cwd: environment.vaultDir,
+        env: agentEnv(environment),
+      });
+
+      await agent.ask("First question.");
+      const originalSessionFile = agent.status().sessionFile;
+      expect(originalSessionFile).toBeTruthy();
+
+      const sessions = agent.listSessions();
+      expect(sessions.some((session) => session.path === originalSessionFile)).toBe(true);
+      expect(sessions[0]?.label).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+
+      const newSessionFile = await agent.newSession();
+      expect(newSessionFile).toBeTruthy();
+      expect(newSessionFile).not.toBe(originalSessionFile);
+      expect((await agent.getState()).messageCount).toBe(0);
     },
   );
 
@@ -125,9 +182,7 @@ describe("NazarAgent over pi RPC", () => {
       });
 
       const startedAt = Date.now();
-      await expect(agent.ask("Hello.", () => undefined)).rejects.toThrow(
-        /pi/,
-      );
+      await expect(agent.ask("Hello.")).rejects.toThrow(/pi/);
       // Must fail at spawn time, not after the 10s handshake timeout.
       expect(Date.now() - startedAt).toBeLessThan(HANDSHAKE_BUDGET_MS);
     },
@@ -145,7 +200,8 @@ describe("NazarAgent over pi RPC", () => {
       });
 
       const events: NazarEvent[] = [];
-      await agent.ask("Summarize today's journal.", (event) => events.push(event));
+      agent.subscribe((event) => events.push(event));
+      await agent.ask("Summarize today's journal.");
 
       const text = events
         .filter((event): event is { type: "text"; delta: string } => event.type === "text")
@@ -193,11 +249,13 @@ describe("NazarAgent over pi RPC", () => {
         sawText = resolve;
       });
 
-      const run = agent.ask("Keep streaming.", (event) => {
+      agent.subscribe((event) => {
         if (event.type === "text") {
           sawText();
         }
       });
+
+      const run = agent.ask("Keep streaming.");
       await textReceived;
 
       expect(agent.status().isRunning).toBe(true);

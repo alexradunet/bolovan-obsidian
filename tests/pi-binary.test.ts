@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { findPiBinary } from "../src/nazar-agent";
+import { findPiBinary, vaultSessionDirName } from "../src/nazar-agent";
 
 const roots: string[] = [];
 
@@ -83,5 +83,17 @@ describe("findPiBinary", () => {
     const found = findPiBinary({ pathEnv: dirWithDirNamedPi, homeDir });
 
     expect(found).toBeUndefined();
+  });
+});
+
+describe("vaultSessionDirName", () => {
+  it("matches the naming pi uses for session directories", () => {
+    expect(vaultSessionDirName("/home/alex/SecondBrain")).toBe(
+      "--home-alex-SecondBrain--",
+    );
+    expect(vaultSessionDirName("/home/alex/SecondBrain/")).toBe(
+      "--home-alex-SecondBrain--",
+    );
+    expect(vaultSessionDirName("/home/alex")).toBe("--home-alex--");
   });
 });

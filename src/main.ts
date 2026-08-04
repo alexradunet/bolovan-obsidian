@@ -7,6 +7,7 @@ import {
   Setting,
   TFile,
 } from "obsidian";
+import { NAZAR_CHAT_VIEW, NazarChatView } from "./chat-view";
 import { NazarAgent, type NazarEvent } from "./nazar-agent";
 
 interface NazarSettings {
@@ -15,12 +16,26 @@ interface NazarSettings {
 }
 
 export default class NazarPlugin extends Plugin {
-  private agent: NazarAgent | undefined;
+  private agentInternal: NazarAgent | undefined;
   private nazarSettings: NazarSettings = {};
+  private agentListeners = new Set<(event: NazarEvent) => void>();
+  private agentForwardUnsubscribe: (() => void) | undefined;
 
   async onload(): Promise<void> {
     this.nazarSettings = Object.assign({}, (await this.loadData()) as NazarSettings | undefined);
-    this.agent = this.createAgent();
+    this.recreateAgent();
+
+    this.registerView(NAZAR_CHAT_VIEW, (leaf) => new NazarChatView(leaf, this));
+
+    this.addRibbonIcon("message-square", "Open Nazar chat", () => {
+      void this.toggleChatView();
+    });
+
+    this.addCommand({
+      id: "open-chat",
+      name: "Open Nazar chat",
+      callback: () => void this.toggleChatView(),
+    });
 
     this.addCommand({
       id: "summarize-active-note",
@@ -42,9 +57,9 @@ export default class NazarPlugin extends Plugin {
       id: "stop-agent",
       name: "Stop current agent run",
       checkCallback: (checking) => {
-        const isRunning = this.agent?.status().isRunning ?? false;
+        const isRunning = this.agentInternal?.status().isRunning ?? false;
         if (isRunning && !checking) {
-          void this.agent?.cancel();
+          void this.agentInternal?.cancel();
         }
         return isRunning;
       },
@@ -53,38 +68,124 @@ export default class NazarPlugin extends Plugin {
     this.addCommand({
       id: "new-conversation",
       name: "Start a new Nazar conversation",
-      callback: () => {
-        this.agent?.resetSession();
-        new Notice("Nazar will start a new conversation");
-      },
+      callback: () => void this.startNewConversation(),
     });
 
     this.addSettingTab(new NazarSettingTab(this.app, this));
   }
 
   onunload(): void {
-    this.agent?.dispose();
-    this.agent = undefined;
+    this.agentInternal?.dispose();
+    this.agentInternal = undefined;
+  }
+
+  get agent(): NazarAgent | undefined {
+    return this.agentInternal;
   }
 
   get piPath(): string | undefined {
     return this.nazarSettings.piPath;
   }
 
+  /** Subscribe to agent events; survives agent re-creation. */
+  subscribeToAgent(listener: (event: NazarEvent) => void): () => void {
+    this.agentListeners.add(listener);
+    return () => {
+      this.agentListeners.delete(listener);
+    };
+  }
+
+  /** Start the pi process if needed. Idempotent. */
+  async startAgent(): Promise<void> {
+    if (!this.agentInternal) {
+      throw new Error("Nazar is not ready");
+    }
+    if (!this.agentInternal.started()) {
+      await this.agentInternal.start();
+    }
+  }
+
+  /** Kill the pi process; the view is closed by its owner. */
+  stopAgent(): void {
+    this.agentInternal?.stop();
+  }
+
   async setPiPath(piPath: string): Promise<void> {
     this.nazarSettings.piPath = piPath || undefined;
     await this.saveData(this.nazarSettings);
-    this.agent?.dispose();
-    this.agent = this.createAgent();
+    this.recreateAgent();
   }
 
-  private createAgent(): NazarAgent {
-    return NazarAgent.create({
+  async openChatView(): Promise<void> {
+    const existingLeaf = this.app.workspace.getLeavesOfType(NAZAR_CHAT_VIEW)[0];
+    if (existingLeaf) {
+      this.app.workspace.revealLeaf(existingLeaf);
+      return;
+    }
+
+    const leaf = this.app.workspace.getRightLeaf(false);
+    if (!leaf) {
+      throw new Error("No sidebar available for the Nazar chat");
+    }
+    await leaf.setViewState({ type: NAZAR_CHAT_VIEW, active: true });
+    this.app.workspace.revealLeaf(leaf);
+  }
+
+  private async toggleChatView(): Promise<void> {
+    const existingLeaf = this.app.workspace.getLeavesOfType(NAZAR_CHAT_VIEW)[0];
+    if (existingLeaf && this.app.workspace.activeLeaf === existingLeaf) {
+      existingLeaf.detach();
+      return;
+    }
+    await this.openChatView();
+  }
+
+  private recreateAgent(): void {
+    this.agentInternal?.dispose();
+    this.agentForwardUnsubscribe?.();
+
+    const agent = NazarAgent.create({
       cwd: this.vaultRoot(),
       piPath: this.nazarSettings.piPath,
       sessionFile: this.nazarSettings.sessionFile,
       onSessionFile: (sessionFile) => void this.persistSessionFile(sessionFile),
     });
+    this.agentInternal = agent;
+
+    this.agentForwardUnsubscribe = agent.subscribe((event) => {
+      for (const listener of this.agentListeners) {
+        listener(event);
+      }
+    });
+  }
+
+  private async startNewConversation(): Promise<void> {
+    const agent = this.agentInternal;
+    if (!agent) {
+      return;
+    }
+    try {
+      if (agent.started()) {
+        await agent.newSession();
+      } else {
+        agent.resetSession();
+      }
+      new Notice("Nazar starts a new conversation");
+    } catch (error) {
+      new Notice(`Nazar failed: ${describeError(error)}`);
+    }
+  }
+
+  private async summarize(note: TFile): Promise<void> {
+    try {
+      await this.openChatView();
+      await this.startAgent();
+      await this.agentInternal?.ask(
+        `Read ${note.path} and summarize it in three concise bullets.`,
+      );
+    } catch (error) {
+      new Notice(`Nazar failed: ${describeError(error)}`);
+    }
   }
 
   private vaultRoot(): string {
@@ -99,44 +200,10 @@ export default class NazarPlugin extends Plugin {
     this.nazarSettings.sessionFile = sessionFile || undefined;
     await this.saveData(this.nazarSettings);
   }
-
-  private async summarize(note: TFile): Promise<void> {
-    if (!this.agent) {
-      new Notice("Nazar is not ready");
-      return;
-    }
-
-    const notice = new Notice("Nazar is thinking…", 0);
-    let response = "";
-
-    try {
-      await this.agent.ask(
-        `Read ${note.path} and summarize it in three concise bullets.`,
-        (event) => {
-          response = updateNotice(notice, response, event);
-        },
-      );
-      notice.setMessage(response || "Nazar completed without a text response");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      notice.setMessage(`Nazar failed: ${message}`);
-    }
-  }
 }
 
-function updateNotice(notice: Notice, response: string, event: NazarEvent): string {
-  if (event.type === "tool-start") {
-    notice.setMessage(`Nazar is using ${event.name}…`);
-    return response;
-  }
-
-  if (event.type !== "text") {
-    return response;
-  }
-
-  const nextResponse = response + event.delta;
-  notice.setMessage(nextResponse.slice(-600));
-  return nextResponse;
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 class NazarSettingTab extends PluginSettingTab {
