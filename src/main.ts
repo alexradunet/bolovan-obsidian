@@ -15,7 +15,6 @@ interface BolovanSettings {
   piPath?: string;
   sessionFile?: string;
   includeActiveNote?: boolean;
-  mentionChips?: boolean;
 }
 
 export default class BolovanPlugin extends Plugin {
@@ -120,16 +119,6 @@ export default class BolovanPlugin extends Plugin {
 
   async setIncludeActiveNote(include: boolean): Promise<void> {
     this.bolovanSettings.includeActiveNote = include;
-    await this.saveData(this.bolovanSettings);
-  }
-
-  /** Whether composer mentions render as chips or Obsidian-style links. */
-  get mentionChips(): boolean {
-    return this.bolovanSettings.mentionChips ?? true;
-  }
-
-  async setMentionChips(useChips: boolean): Promise<void> {
-    this.bolovanSettings.mentionChips = useChips;
     await this.saveData(this.bolovanSettings);
   }
 

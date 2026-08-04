@@ -8,10 +8,6 @@ import {
 } from "./context";
 
 const MENTION_CLASS = "bolovan-chat__mention";
-const CHIP_STYLE_CLASS = "bolovan-chat__mention--chip";
-const LINK_STYLE_CLASS = "bolovan-chat__mention--link";
-
-export type MentionStyle = "chip" | "link";
 
 export interface ComposerOptions {
   /** Where the editable element is built. */
@@ -20,8 +16,6 @@ export interface ComposerOptions {
   pickerHost: HTMLElement;
   /** Mention candidates, typically all vault notes newest-first. */
   getNotes: () => NoteCandidate[];
-  /** How collapsed mentions render: chip pills or Obsidian-style links. */
-  getMentionStyle: () => MentionStyle;
   /** Called on Enter without Shift. */
   onSend: () => void;
 }
@@ -126,24 +120,6 @@ export class Composer {
     range.insertNode(fragment);
     this.placeCaretAfter(link);
     this.focus();
-  }
-
-  /** Rebuild every mention span; used when the display style changes. */
-  restyle(): void {
-    const caret = this.caretOffset();
-    const mentions = Array.from(this.el.querySelectorAll(`.${MENTION_CLASS}`));
-    for (const mention of mentions) {
-      const element = mention as HTMLElement;
-      element.replaceWith(this.el.ownerDocument.createTextNode(linkSerialized(element)));
-    }
-    if (caret >= 0) {
-      const position = this.locate(caret);
-      const range = this.el.ownerDocument.createRange();
-      range.setStart(position.node, position.offset);
-      range.collapse(true);
-      this.setSelection(range);
-    }
-    this.refresh();
   }
 
   // ----- editor events -----------------------------------------------------
@@ -301,9 +277,7 @@ export class Composer {
 
   private makeLink(label: string): HTMLElement {
     const link = this.el.ownerDocument.createElement("span");
-    const style = this.options.getMentionStyle();
-    const styleClass = style === "chip" ? CHIP_STYLE_CLASS : LINK_STYLE_CLASS;
-    link.className = `${MENTION_CLASS} ${styleClass}`;
+    link.className = MENTION_CLASS;
     link.setAttribute("contenteditable", "false");
     link.dataset.label = label;
     link.textContent = linkDisplay(label);

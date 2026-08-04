@@ -37,7 +37,6 @@ export class BolovanChatView extends ItemView {
   private composer!: Composer;
   private sendButtonEl!: HTMLButtonElement;
   private activeNoteToggleEl!: HTMLButtonElement;
-  private mentionStyleToggleEl!: HTMLButtonElement;
   private newSessionButtonEl!: HTMLButtonElement;
   private sessionSelectEl!: HTMLSelectElement;
   private modelSelectEl!: HTMLSelectElement;
@@ -138,6 +137,7 @@ export class BolovanChatView extends ItemView {
       attr: { role: "log", "aria-live": "polite", "aria-label": "Conversation" },
     });
     this.transcriptEl.addEventListener("scroll", () => this.onTranscriptScroll());
+    this.transcriptEl.addEventListener("click", (event) => this.onTranscriptClick(event));
     this.buildEmptyState();
     this.buildStatus();
 
@@ -155,7 +155,6 @@ export class BolovanChatView extends ItemView {
       editorHost: composer,
       pickerHost: composerStage,
       getNotes: () => this.noteCandidates(),
-      getMentionStyle: () => (this.plugin.mentionChips ? "chip" : "link"),
       onSend: () => void this.send(),
     });
 
@@ -182,15 +181,6 @@ export class BolovanChatView extends ItemView {
     this.activeNoteToggleEl.addEventListener("click", () => {
       void this.toggleActiveNoteAttachment();
     });
-
-    this.mentionStyleToggleEl = controls.createEl("button", {
-      cls: "clickable-icon bolovan-chat__mention-style-toggle",
-    });
-    setIcon(this.mentionStyleToggleEl, "tags");
-    this.mentionStyleToggleEl.addEventListener("click", () => {
-      void this.toggleMentionStyle();
-    });
-    this.updateMentionStyleToggle();
 
     this.modelSelectEl = controls.createEl("select", {
       cls: "bolovan-chat__models",
@@ -490,25 +480,24 @@ export class BolovanChatView extends ItemView {
     this.updateContextRow();
   }
 
-  private async toggleMentionStyle(): Promise<void> {
-    await this.plugin.setMentionChips(!this.plugin.mentionChips);
-    this.composer.restyle();
-    this.updateMentionStyleToggle();
-  }
-
-  private updateMentionStyleToggle(): void {
-    const chips = this.plugin.mentionChips;
-    this.mentionStyleToggleEl.toggleClass("is-on", chips);
-    this.mentionStyleToggleEl.setAttr(
-      "aria-label",
-      chips ? "Mentions show as chips" : "Mentions show as links",
-    );
-    this.mentionStyleToggleEl.setAttr(
-      "title",
-      chips
-        ? "Mentions show as chips — click to show as links"
-        : "Mentions show as links — click to show as chips",
-    );
+  /** Open a wikilink rendered in the transcript (e.g. in agent replies). */
+  private onTranscriptClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    const link = target.closest("a.internal-link");
+    if (!(link instanceof HTMLElement)) {
+      return;
+    }
+    event.preventDefault();
+    const href = link.getAttr("data-href") ?? link.textContent ?? "";
+    if (!href) {
+      return;
+    }
+    const file = this.app.metadataCache.getFirstLinkpathDest(href, "");
+    if (!file) {
+      new Notice(`No note found for [[${href}]]`);
+      return;
+    }
+    void this.openNote(file);
   }
 
   /** Open an attached note from the transcript. */
@@ -518,15 +507,19 @@ export class BolovanChatView extends ItemView {
       new Notice(`This note no longer exists: ${path}`);
       return;
     }
+    await this.openNote(file);
+  }
+
+  /** Open a note without ever replacing the chat surface itself. */
+  private async openNote(file: TFile): Promise<void> {
     try {
-      // Never replace the chat surface itself.
       const leaf =
         this.app.workspace.activeLeaf === this.leaf
           ? this.app.workspace.getLeaf("tab")
           : this.app.workspace.getLeaf(false);
       await leaf.openFile(file);
     } catch (error) {
-      new Notice(`Could not open ${path}: ${describeError(error)}`);
+      new Notice(`Could not open ${file.path}: ${describeError(error)}`);
     }
   }
 
@@ -547,10 +540,10 @@ export class BolovanChatView extends ItemView {
     );
 
     if (activeNote) {
-      const chip = this.contextRowEl.createSpan({ cls: "bolovan-chat__context-note" });
-      setIcon(chip.createSpan({ cls: "bolovan-chat__context-icon" }), "file-text");
-      chip.appendText(activeNote.basename);
-      chip.setAttr("title", activeNote.path);
+      const noteEl = this.contextRowEl.createSpan({ cls: "bolovan-chat__context-note" });
+      setIcon(noteEl.createSpan({ cls: "bolovan-chat__context-icon" }), "file-text");
+      noteEl.appendText(activeNote.basename);
+      noteEl.setAttr("title", activeNote.path);
     }
     this.contextRowEl.createSpan({
       cls: "bolovan-chat__context-hint",
