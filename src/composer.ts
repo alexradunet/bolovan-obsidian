@@ -7,7 +7,7 @@ import {
   type NoteCandidate,
 } from "./context";
 
-const CHIP_CLASS = "bolovan-chat__mention-chip";
+const LINK_CLASS = "bolovan-chat__mention-link";
 
 export interface ComposerOptions {
   /** Where the editable element is built. */
@@ -21,11 +21,11 @@ export interface ComposerOptions {
 }
 
 /**
- * The chat input: a contenteditable line where note mentions live as chips.
- * Chips serialize back to `[[label]]` wikilinks, so the outgoing prompt is
- * plain text and nothing downstream changes. Clicking a chip unwraps it
- * into editable text; once the caret leaves a completed mention it becomes
- * a chip again.
+ * The chat input: a contenteditable line where note mentions render as
+ * Obsidian-style links. Links serialize back to `[[label]]` wikilinks, so
+ * the outgoing prompt is plain text and nothing downstream changes.
+ * Clicking a link expands it into editable `[[label]]` text — like live
+ * preview — and it collapses back once the caret leaves.
  */
 export class Composer {
   readonly el: HTMLDivElement;
@@ -60,7 +60,7 @@ export class Composer {
     this.picker = new MentionPicker(this, options.pickerHost, options.getNotes);
   }
 
-  /** Plain text of the message; chips appear as their [[label]] form. */
+  /** Plain text of the message; links appear as their [[label]] form. */
   getText(): string {
     return extractText(this.el);
   }
@@ -86,8 +86,8 @@ export class Composer {
     return mentionTokenAt(this.getText(), caret);
   }
 
-  /** Replace a mention token with its chip; used by the picker. */
-  replaceTokenWithChip(token: MentionToken, note: NoteCandidate): void {
+  /** Replace a mention token with its link; used by the picker. */
+  replaceTokenWithLink(token: MentionToken, note: NoteCandidate): void {
     const label = mentionLabel(note, this.options.getNotes());
     const start = this.locate(token.start);
     const end = this.locate(token.end);
@@ -95,12 +95,12 @@ export class Composer {
     range.setStart(start.node, start.offset);
     range.setEnd(end.node, end.offset);
     range.deleteContents();
-    const chip = this.makeChip(label);
-    range.insertNode(chip);
-    this.placeCaretAfter(chip);
+    const link = this.makeLink(label);
+    range.insertNode(link);
+    this.placeCaretAfter(link);
   }
 
-  /** Insert a mention chip at the caret; used by the paperclip chooser. */
+  /** Insert a mention link at the caret; used by the paperclip chooser. */
   insertMention(label: string): void {
     // The chooser modal steals focus, so an absent caret means "append".
     const caretOffset = this.caretOffset();
@@ -115,10 +115,10 @@ export class Composer {
     if (needsSpace) {
       fragment.appendChild(this.el.ownerDocument.createTextNode(" "));
     }
-    const chip = this.makeChip(label);
-    fragment.appendChild(chip);
+    const link = this.makeLink(label);
+    fragment.appendChild(link);
     range.insertNode(fragment);
-    this.placeCaretAfter(chip);
+    this.placeCaretAfter(link);
     this.focus();
   }
 
@@ -137,9 +137,9 @@ export class Composer {
 
   private onClick(event: MouseEvent): void {
     const target = event.target as HTMLElement;
-    const chip = target.closest(`.${CHIP_CLASS}`);
-    if (chip && this.el.contains(chip)) {
-      this.unwrapChip(chip as HTMLElement);
+    const link = target.closest(`.${LINK_CLASS}`);
+    if (link && this.el.contains(link)) {
+      this.unwrapLink(link as HTMLElement);
       return;
     }
     this.refresh();
@@ -179,13 +179,13 @@ export class Composer {
     this.refresh();
   }
 
-  // ----- chips ---------------------------------------------------------------
+  // ----- links ---------------------------------------------------------------
 
-  /** Clicking a chip unwraps it so its label can be edited as plain text. */
-  private unwrapChip(chip: HTMLElement): void {
-    const label = chip.dataset.label ?? chip.textContent ?? "";
+  /** Clicking a link expands it so its label can be edited as plain text. */
+  private unwrapLink(link: HTMLElement): void {
+    const label = link.dataset.label ?? link.textContent ?? "";
     const textNode = this.el.ownerDocument.createTextNode(`[[${label}]]`);
-    chip.replaceWith(textNode);
+    link.replaceWith(textNode);
     const range = this.el.ownerDocument.createRange();
     range.setStart(textNode, textNode.nodeValue?.length ?? 0);
     range.collapse(true);
@@ -194,10 +194,10 @@ export class Composer {
   }
 
   /**
-   * Turn completed [[mention]] text into chips, keeping the full inner
-   * label (heading and alias included). Chips are skipped structurally
-   * (they are not text nodes) and the token holding the caret stays
-   * editable.
+   * Turn completed [[mention]] text into links, keeping the full inner
+   * label (heading and alias included). Existing links are skipped
+   * structurally (they are not text nodes) and the token holding the caret
+   * stays editable.
    */
   private decorate(): void {
     if (this.composing) {
@@ -229,8 +229,8 @@ export class Composer {
         base += value.length;
         return;
       }
-      if (isChipElement(node)) {
-        base += chipSerialized(node).length;
+      if (isLinkElement(node)) {
+        base += linkSerialized(node).length;
         return;
       }
       if (node.nodeName === "BR") {
@@ -249,18 +249,18 @@ export class Composer {
       range.setStart(replacement.node, replacement.start);
       range.setEnd(replacement.node, replacement.end);
       range.deleteContents();
-      range.insertNode(this.makeChip(replacement.label));
+      range.insertNode(this.makeLink(replacement.label));
     }
   }
 
-  private makeChip(label: string): HTMLElement {
-    const chip = this.el.ownerDocument.createElement("span");
-    chip.className = CHIP_CLASS;
-    chip.setAttribute("contenteditable", "false");
-    chip.dataset.label = label;
-    chip.textContent = chipDisplay(label);
-    chip.title = label;
-    return chip;
+  private makeLink(label: string): HTMLElement {
+    const link = this.el.ownerDocument.createElement("span");
+    link.className = LINK_CLASS;
+    link.setAttribute("contenteditable", "false");
+    link.dataset.label = label;
+    link.textContent = linkDisplay(label);
+    link.title = label;
+    return link;
   }
 
   // ----- caret and positions -------------------------------------------------
@@ -281,7 +281,7 @@ export class Composer {
     return extractText(prefix.cloneContents()).length;
   }
 
-  /** DOM position for a plain-text offset. Chips and BRs count as units. */
+  /** DOM position for a plain-text offset. Links and BRs count as units. */
   private locate(offset: number): { node: Node; offset: number } {
     let remaining = offset;
 
@@ -299,8 +299,8 @@ export class Composer {
         remaining -= length;
         return undefined;
       }
-      if (isChipElement(node)) {
-        const length = chipSerialized(node).length;
+      if (isLinkElement(node)) {
+        const length = linkSerialized(node).length;
         if (remaining < length) {
           return before(node);
         }
@@ -453,7 +453,7 @@ class MentionPicker {
     if (!this.token) {
       return;
     }
-    this.composer.replaceTokenWithChip(this.token, note);
+    this.composer.replaceTokenWithLink(this.token, note);
     this.close();
   }
 
@@ -491,16 +491,16 @@ function folderOf(path: string): string {
   return folder || "/";
 }
 
-function isChipElement(node: Node): node is HTMLElement {
-  return node instanceof HTMLElement && node.classList.contains(CHIP_CLASS);
+function isLinkElement(node: Node): node is HTMLElement {
+  return node instanceof HTMLElement && node.classList.contains(LINK_CLASS);
 }
 
-function chipSerialized(chip: HTMLElement): string {
-  return `[[${chip.dataset.label ?? chip.textContent ?? ""}]]`;
+function linkSerialized(link: HTMLElement): string {
+  return `[[${link.dataset.label ?? link.textContent ?? ""}]]`;
 }
 
 /** Alias when present, otherwise the basename of the linked path. */
-function chipDisplay(label: string): string {
+function linkDisplay(label: string): string {
   const alias = label.split("|")[1]?.trim();
   if (alias) {
     return alias;
@@ -509,7 +509,7 @@ function chipDisplay(label: string): string {
   return pathPart.split("/").pop() || label;
 }
 
-/** Plain-text form of any DOM fragment: text nodes, chips, and newlines. */
+/** Plain-text form of any DOM fragment: text nodes, links, and newlines. */
 function extractText(root: Node): string {
   let out = "";
   const walk = (node: Node): void => {
@@ -517,8 +517,8 @@ function extractText(root: Node): string {
       out += node.nodeValue ?? "";
       return;
     }
-    if (isChipElement(node)) {
-      out += chipSerialized(node);
+    if (isLinkElement(node)) {
+      out += linkSerialized(node);
       return;
     }
     if (node.nodeName === "BR") {
