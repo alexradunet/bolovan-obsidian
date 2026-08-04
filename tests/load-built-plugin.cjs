@@ -15,6 +15,10 @@ Module._load = function loadWithObsidianStub(request, parent, isMain) {
       TFile: class TFile {},
       FileSystemAdapter: class FileSystemAdapter {},
       ItemView: class ItemView {},
+      Modal: class Modal {
+        open() {}
+        close() {}
+      },
       Component: class Component {
         load() {}
         unload() {}

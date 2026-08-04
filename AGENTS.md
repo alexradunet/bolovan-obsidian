@@ -72,6 +72,7 @@ These are requirements, not suggestions:
 ## Verification
 
 - Test session lineage tracking, streaming, cancellation, visible failure paths, and the long-lived process (multiple runs over one connection).
+- Transcript semantics live in one module (`src/transcript.ts`) and are tested through its interface without Obsidian or pi.
 - Integration tests spawn a real `pi` process against a synthetic vault and an isolated pi config dir with a fake model server. Never require a real personal vault.
 - Tests should survive internal refactors when the module interface and behavior remain unchanged.
 - Tests must not read or modify the user's vault or the user's real pi config.
