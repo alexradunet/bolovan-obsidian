@@ -6,7 +6,7 @@ Requires the `pi` CLI installed on the machine. Conversations persist in pi's sh
 
 ## Commands
 
-- **Open Nazar chat** (also the ribbon icon) — sidebar chat over the active pi session: streaming Markdown, tool calls, model and thinking-level switching, session picker, steering while a run is active, Stop. The pi process lives while the view is open.
+- **Open Nazar chat** (also the ribbon icon) — sidebar chat over the active pi session: streaming Markdown, tool calls, model and thinking-level switching, session picker, steering while a run is active, Stop. The pi process lives while the view is open. Extension dialogs — including the vault's write-approval gate — appear as Obsidian modals.
 - **Summarize active note with Nazar** — asks the agent, in the chat, to read and summarize the open note.
 - **Stop current agent run** — aborts the running agent.
 - **Start a new Nazar conversation** — starts a fresh session.

@@ -8,7 +8,7 @@ import {
   TFile,
 } from "obsidian";
 import { NAZAR_CHAT_VIEW, NazarChatView } from "./chat-view";
-import { NazarAgent, type NazarEvent } from "./nazar-agent";
+import { NazarAgent, type NazarEvent, type NazarUiRequest } from "./nazar-agent";
 
 interface NazarSettings {
   piPath?: string;
@@ -20,6 +20,7 @@ export default class NazarPlugin extends Plugin {
   private nazarSettings: NazarSettings = {};
   private agentListeners = new Set<(event: NazarEvent) => void>();
   private agentForwardUnsubscribe: (() => void) | undefined;
+  private uiResponder: ((request: NazarUiRequest) => void) | undefined;
 
   async onload(): Promise<void> {
     this.nazarSettings = Object.assign({}, (await this.loadData()) as NazarSettings | undefined);
@@ -95,6 +96,12 @@ export default class NazarPlugin extends Plugin {
     };
   }
 
+  /** Register the dialog surface for extension UI requests (the chat view). */
+  setAgentUiResponder(responder: ((request: NazarUiRequest) => void) | undefined): void {
+    this.uiResponder = responder;
+    this.agentInternal?.setUiResponder(responder);
+  }
+
   /** Start the pi process if needed. Idempotent. */
   async startAgent(): Promise<void> {
     if (!this.agentInternal) {
@@ -151,6 +158,7 @@ export default class NazarPlugin extends Plugin {
       onSessionFile: (sessionFile) => void this.persistSessionFile(sessionFile),
     });
     this.agentInternal = agent;
+    agent.setUiResponder(this.uiResponder);
 
     this.agentForwardUnsubscribe = agent.subscribe((event) => {
       for (const listener of this.agentListeners) {

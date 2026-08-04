@@ -1,6 +1,6 @@
-import { Component, ItemView, MarkdownRenderer, WorkspaceLeaf } from "obsidian";
+import { Component, ItemView, MarkdownRenderer, Modal, WorkspaceLeaf } from "obsidian";
 import type NazarPlugin from "./main";
-import type { NazarEvent } from "./nazar-agent";
+import type { NazarEvent, NazarUiRequest } from "./nazar-agent";
 
 export const NAZAR_CHAT_VIEW = "nazar-chat-view";
 
@@ -50,6 +50,7 @@ export class NazarChatView extends ItemView {
     this.component.load();
     this.buildLayout();
     this.unsubscribe = this.plugin.subscribeToAgent((event) => this.onAgentEvent(event));
+    this.plugin.setAgentUiResponder((request) => this.showDialog(request));
 
     try {
       await this.plugin.startAgent();
@@ -65,6 +66,7 @@ export class NazarChatView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.plugin.setAgentUiResponder(undefined);
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.component.unload();
@@ -180,7 +182,23 @@ export class NazarChatView extends ItemView {
       this.finalizeStream();
       this.setRunning(false);
       this.appendSystem(`${event.message} Send a message to restart.`);
+      return;
     }
+
+    if (event.type === "notify") {
+      this.appendSystem(event.message);
+    }
+  }
+
+  /** Extension dialog surface: approval gates, prompts, selections. */
+  private showDialog(request: NazarUiRequest): void {
+    const agent = this.plugin.agent;
+    if (!agent) {
+      return;
+    }
+    new NazarDialogModal(this.app, request, (payload) => {
+      agent.respondUi(request.id, payload);
+    }).open();
   }
 
   private setRunning(running: boolean): void {
@@ -497,4 +515,86 @@ function formatTokens(tokens: number): string {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Obsidian dialog answering a pi extension UI request. Esc or close counts
+ * as cancellation, which extensions receive as a declined dialog.
+ */
+class NazarDialogModal extends Modal {
+  constructor(
+    app: any,
+    private readonly request: NazarUiRequest,
+    private readonly respond: (payload: Record<string, unknown>) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.titleEl.setText(this.request.title ?? "Nazar");
+
+    if (this.request.message) {
+      this.contentEl.createEl("pre", {
+        cls: "nazar-dialog__message",
+        text: this.request.message,
+      });
+    }
+
+    if (this.request.method === "confirm") {
+      this.buildConfirm();
+    } else if (this.request.method === "select") {
+      this.buildSelect();
+    } else {
+      this.buildTextInput();
+    }
+  }
+
+  onClose(): void {
+    // The modal can close after a button already answered; answering twice
+    // is harmless because pi ignores responses for settled requests.
+    this.respond({ cancelled: true });
+  }
+
+  private answer(payload: Record<string, unknown>): void {
+    this.respond(payload);
+    this.close();
+  }
+
+  private buildConfirm(): void {
+    const actions = this.contentEl.createDiv({ cls: "nazar-dialog__actions" });
+    const reject = actions.createEl("button", { text: "Reject" });
+    reject.addEventListener("click", () => this.answer({ confirmed: false }));
+    const approve = actions.createEl("button", { cls: "mod-cta", text: "Approve" });
+    approve.addEventListener("click", () => this.answer({ confirmed: true }));
+    approve.focus();
+  }
+
+  private buildSelect(): void {
+    const select = this.contentEl.createEl("select");
+    for (const option of this.request.options ?? []) {
+      select.createEl("option", { value: option, text: option });
+    }
+
+    const actions = this.contentEl.createDiv({ cls: "nazar-dialog__actions" });
+    const cancel = actions.createEl("button", { text: "Cancel" });
+    cancel.addEventListener("click", () => this.answer({ cancelled: true }));
+    const ok = actions.createEl("button", { cls: "mod-cta", text: "OK" });
+    ok.addEventListener("click", () => this.answer({ value: select.value }));
+    ok.focus();
+  }
+
+  private buildTextInput(): void {
+    const textarea = this.contentEl.createEl("textarea", {
+      cls: "nazar-dialog__text",
+      attr: { placeholder: this.request.placeholder ?? "" },
+      text: this.request.prefill ?? "",
+    });
+
+    const actions = this.contentEl.createDiv({ cls: "nazar-dialog__actions" });
+    const cancel = actions.createEl("button", { text: "Cancel" });
+    cancel.addEventListener("click", () => this.answer({ cancelled: true }));
+    const ok = actions.createEl("button", { cls: "mod-cta", text: "OK" });
+    ok.addEventListener("click", () => this.answer({ value: textarea.value }));
+    textarea.focus();
+  }
 }

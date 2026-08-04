@@ -26,7 +26,20 @@ export type NazarEvent =
   | { type: "tool-start"; name: string; args: Record<string, unknown> }
   | { type: "tool-end"; name: string; isError: boolean }
   | { type: "settled" }
-  | { type: "exited"; message: string };
+  | { type: "exited"; message: string }
+  | { type: "ui-request"; request: NazarUiRequest }
+  | { type: "notify"; message: string; notifyType: string };
+
+/** Dialog requests from pi extensions (e.g. the write-approval gate). */
+export interface NazarUiRequest {
+  id: string;
+  method: "select" | "confirm" | "input" | "editor";
+  title?: string;
+  message?: string;
+  options?: string[];
+  placeholder?: string;
+  prefill?: string;
+}
 
 export interface NazarAgentStatus {
   isRunning: boolean;
@@ -81,6 +94,7 @@ export class NazarAgent {
   private resolvedCommand: string | undefined;
   private pending = new Map<string, PendingCommand>();
   private listeners = new Set<(event: NazarEvent) => void>();
+  private uiResponder: ((request: NazarUiRequest) => void) | undefined;
   private runController: ReturnType<typeof createRunController> | undefined;
   private running = false;
   private stopping = false;
@@ -100,6 +114,23 @@ export class NazarAgent {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  /**
+   * The chat view registers itself as the dialog surface for extension UI
+   * requests. Without a responder, dialog requests are cancelled at once so
+   * the agent never blocks on an invisible prompt.
+   */
+  setUiResponder(responder: ((request: NazarUiRequest) => void) | undefined): void {
+    this.uiResponder = responder;
+  }
+
+  /** Answer an extension UI dialog request. */
+  respondUi(id: string, payload: Record<string, unknown>): void {
+    if (!this.send) {
+      return;
+    }
+    this.send({ type: "extension_ui_response", id, ...payload });
   }
 
   status(): NazarAgentStatus {
@@ -136,7 +167,10 @@ export class NazarAgent {
         this.emit({ type: "exited", message });
       }
     });
-    attachEventReader(child, this.send, this.pending, (event) => this.emit(event));
+    attachEventReader(child, this.send, this.pending, (event) => this.emit(event), {
+      onUiRequest: (request) => this.handleUiRequest(request),
+      onNotify: (message, notifyType) => this.emit({ type: "notify", message, notifyType }),
+    });
 
     const state = await this.handshake();
     this.trackSessionFile(state.sessionFile);
@@ -360,6 +394,29 @@ export class NazarAgent {
     return child;
   }
 
+  private handleUiRequest(record: any): void {
+    const dialogMethods = ["select", "confirm", "input", "editor"];
+    if (!dialogMethods.includes(record.method)) {
+      return;
+    }
+
+    const request: NazarUiRequest = {
+      id: record.id,
+      method: record.method,
+      title: record.title,
+      message: record.message,
+      options: record.options,
+      placeholder: record.placeholder,
+      prefill: record.prefill,
+    };
+
+    if (!this.uiResponder) {
+      this.respondUi(request.id, { cancelled: true });
+      return;
+    }
+    this.uiResponder(request);
+  }
+
   private emit(event: NazarEvent): void {
     if (event.type === "settled") {
       this.runController?.settle();
@@ -554,6 +611,10 @@ function attachEventReader(
   send: (command: object) => void,
   pending: Map<string, PendingCommand>,
   onEvent: (event: NazarEvent) => void,
+  hooks: {
+    onUiRequest(record: any): void;
+    onNotify(message: string, notifyType: string): void;
+  },
 ): void {
   const feed = createJsonlReader((line) => {
     let record: any;
@@ -578,11 +639,14 @@ function attachEventReader(
     }
 
     if (record?.type === "extension_ui_request") {
-      // Dialog requests would block the agent; the plugin never opts into
-      // extension dialogs, so cancel them immediately.
-      if (typeof record.id === "string") {
-        send({ type: "extension_ui_response", id: record.id, cancelled: true });
+      if (typeof record.id !== "string") {
+        return;
       }
+      if (record.method === "notify") {
+        hooks.onNotify(String(record.message ?? ""), String(record.notifyType ?? "info"));
+        return;
+      }
+      hooks.onUiRequest(record);
       return;
     }
 

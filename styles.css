@@ -194,3 +194,26 @@
 .nazar-tool__label {
   overflow-wrap: anywhere;
 }
+
+.nazar-dialog__message {
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+  max-height: 40vh;
+  overflow: auto;
+  padding: var(--size-4-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.nazar-dialog__text {
+  min-height: 6rem;
+  width: 100%;
+}
+
+.nazar-dialog__actions {
+  display: flex;
+  gap: var(--size-4-2);
+  justify-content: flex-end;
+  margin-top: var(--size-4-3);
+}

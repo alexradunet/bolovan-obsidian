@@ -212,6 +212,69 @@ describe("NazarAgent over pi RPC", () => {
   );
 
   it(
+    "routes write approval through the dialog responder",
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const environment = await createTestEnvironment({
+        respond: writeGateRespond,
+      });
+      await installWriteGateExtension(environment);
+
+      const agent = await createAgent({
+        cwd: environment.vaultDir,
+        env: agentEnv(environment),
+      });
+      agent.setUiResponder((request) => {
+        agent.respondUi(request.id, { confirmed: true });
+      });
+
+      const events: NazarEvent[] = [];
+      agent.subscribe((event) => events.push(event));
+      await agent.ask("Write a note.");
+
+      const gatedFile = join(environment.vaultDir, "Drafts", "Note.md");
+      await expect(readFile(gatedFile, "utf8")).resolves.toContain("gated content");
+      expect(events).toContainEqual({
+        type: "tool-end",
+        name: "write",
+        isError: false,
+      });
+    },
+  );
+
+  it(
+    "blocks a write the user rejects",
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const environment = await createTestEnvironment({
+        respond: writeGateRespond,
+      });
+      await installWriteGateExtension(environment);
+
+      const agent = await createAgent({
+        cwd: environment.vaultDir,
+        env: agentEnv(environment),
+      });
+      agent.setUiResponder((request) => {
+        agent.respondUi(request.id, { confirmed: false });
+      });
+
+      const events: NazarEvent[] = [];
+      agent.subscribe((event) => events.push(event));
+      await agent.ask("Write a note.");
+
+      const gatedFile = join(environment.vaultDir, "Drafts", "Note.md");
+      await expect(readFile(gatedFile, "utf8")).rejects.toThrow();
+      expect(events).toContainEqual({
+        type: "tool-end",
+        name: "write",
+        isError: true,
+      });
+      expect(events.some((event) => event.type === "settled")).toBe(true);
+    },
+  );
+
+  it(
     "cancels an active run",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
@@ -414,6 +477,72 @@ function agentEnv(environment: TestEnvironment): Record<string, string> {
     PI_OFFLINE: "1",
     PI_SKIP_VERSION_CHECK: "1",
   };
+}
+
+/** Model choreography that attempts one write and then answers. */
+function writeGateRespond(requestIndex: number, response: ServerResponse): void {
+  beginEventStream(response);
+
+  if (requestIndex === 0) {
+    sendChunk(response, {
+      choices: [
+        {
+          index: 0,
+          delta: {
+            role: "assistant",
+            tool_calls: [
+              {
+                index: 0,
+                id: "write-note",
+                type: "function",
+                function: {
+                  name: "write",
+                  arguments: '{"path":"Drafts/Note.md","content":"gated content"}',
+                },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    });
+    sendChunk(response, {
+      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+    });
+  } else {
+    sendChunk(response, {
+      choices: [
+        {
+          index: 0,
+          delta: { role: "assistant", content: "Done." },
+          finish_reason: null,
+        },
+      ],
+    });
+    sendChunk(response, {
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    });
+  }
+
+  response.end();
+}
+
+async function installWriteGateExtension(environment: TestEnvironment): Promise<void> {
+  const extensionsDir = join(environment.vaultDir, ".pi", "extensions");
+  await mkdir(extensionsDir, { recursive: true });
+  await writeFile(
+    join(extensionsDir, "gate.ts"),
+    [
+      "export default function (pi: any): void {",
+      "  pi.on('tool_call', async (event: any, ctx: any) => {",
+      "    if (event.toolName !== 'write') return;",
+      "    const ok = await ctx.ui.confirm('Approve write?', String(event.input.path));",
+      "    if (!ok) return { block: true, reason: 'Rejected by user' };",
+      "  });",
+      "}",
+      "",
+    ].join("\n"),
+  );
 }
 
 async function createAgent(
