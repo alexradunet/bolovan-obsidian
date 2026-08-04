@@ -745,7 +745,7 @@ export class BolovanChatView extends ItemView {
       // `used` is null right after compaction until the next response.
       const contextText =
         typeof used === "number" && typeof contextWindow === "number"
-          ? `${Math.round(used / 1000)}K/${Math.round(contextWindow / 1000)}K`
+          ? `${formatContextSize(used)}/${formatContextSize(contextWindow)}`
           : "Context —";
       this.statsEl.setText(contextText);
       this.statsEl.setAttr("title", usageDetail);
@@ -782,6 +782,15 @@ export class BolovanChatView extends ItemView {
 
 function formatTokens(tokens: number): string {
   return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
+}
+
+/** Context sizes in K, promoted to M once they reach 1000K. */
+function formatContextSize(tokens: number): string {
+  const thousands = Math.round(tokens / 1000);
+  if (thousands < 1000) {
+    return `${thousands}K`;
+  }
+  return `${parseFloat((thousands / 1000).toFixed(1))}M`;
 }
 
 function describeError(error: unknown): string {
