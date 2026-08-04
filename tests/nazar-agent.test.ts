@@ -1,21 +1,35 @@
-import { createServer, type ServerResponse } from "node:http";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { NazarAgent, type NazarEvent } from "../src/nazar-agent";
+import { createFakePiEnvironment, type FakeTurn, type FakePiEnvironment } from "./fake-model";
 
 const TEST_TIMEOUT_MS = 60_000;
 const HANDSHAKE_BUDGET_MS = 5_000;
 
-interface TestEnvironment {
-  vaultDir: string;
-  agentDir: string;
-  requestBodies: any[];
-  close(): Promise<void>;
-}
+/** The common scenario: the model reads the journal note, then answers. */
+const READ_JOURNAL_SCRIPT: FakeTurn[][] = [
+  [{ toolCall: { name: "read", arguments: { path: "Journal/Today.md" } } }],
+  [{ text: "A grounded summary." }],
+];
 
-const environments: TestEnvironment[] = [];
+const WRITE_NOTE_SCRIPT: FakeTurn[][] = [
+  [{ toolCall: { name: "write", arguments: { path: "Drafts/Note.md", content: "gated content" } } }],
+  [{ text: "Done." }],
+];
+
+const WRITE_GATE_EXTENSION = [
+  "export default function (pi: any): void {",
+  "  pi.on('tool_call', async (event: any, ctx: any) => {",
+  "    if (event.toolName !== 'write') return;",
+  "    const ok = await ctx.ui.confirm('Approve write?', String(event.input.path));",
+  "    if (!ok) return { block: true, reason: 'Rejected by user' };",
+  "  });",
+  "}",
+  "",
+].join("\n");
+
+const environments: FakePiEnvironment[] = [];
 const agents: NazarAgent[] = [];
 
 afterEach(async () => {
@@ -35,12 +49,12 @@ describe("NazarAgent over pi RPC", () => {
     "runs pi against a synthetic vault with built-in tools",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
-      const environment = await createTestEnvironment();
+      const environment = await track(createFakePiEnvironment({ script: READ_JOURNAL_SCRIPT }));
       let sessionFileReported: string | undefined;
 
       const agent = await createAgent({
         cwd: environment.vaultDir,
-        env: agentEnv(environment),
+        env: environment.env,
         onSessionFile: (sessionFile) => {
           sessionFileReported = sessionFile;
         },
@@ -65,10 +79,7 @@ describe("NazarAgent over pi RPC", () => {
       });
       expect(events.some((event) => event.type === "settled")).toBe(true);
 
-      const text = events
-        .filter((event): event is { type: "text"; delta: string } => event.type === "text")
-        .map((event) => event.delta)
-        .join("");
+      const text = textOf(events);
       expect(text).toContain("A grounded summary.");
 
       expect(sessionFileReported).toBeTruthy();
@@ -81,10 +92,10 @@ describe("NazarAgent over pi RPC", () => {
     "keeps the process alive across runs",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
-      const environment = await createTestEnvironment();
+      const environment = await track(createFakePiEnvironment({ script: READ_JOURNAL_SCRIPT }));
       const agent = await createAgent({
         cwd: environment.vaultDir,
-        env: agentEnv(environment),
+        env: environment.env,
       });
 
       let settledCount = 0;
@@ -108,12 +119,12 @@ describe("NazarAgent over pi RPC", () => {
     "resumes the tracked session lineage across agent instances",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
-      const environment = await createTestEnvironment();
+      const environment = await track(createFakePiEnvironment({ script: READ_JOURNAL_SCRIPT }));
       let sessionFileReported: string | undefined;
 
       const firstAgent = await createAgent({
         cwd: environment.vaultDir,
-        env: agentEnv(environment),
+        env: environment.env,
         onSessionFile: (sessionFile) => {
           sessionFileReported = sessionFile;
         },
@@ -125,7 +136,7 @@ describe("NazarAgent over pi RPC", () => {
 
       const secondAgent = await createAgent({
         cwd: environment.vaultDir,
-        env: agentEnv(environment),
+        env: environment.env,
         sessionFile: trackedSessionFile,
       });
       const events: NazarEvent[] = [];
@@ -149,10 +160,10 @@ describe("NazarAgent over pi RPC", () => {
     "lists vault sessions and starts a fresh lineage",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
-      const environment = await createTestEnvironment();
+      const environment = await track(createFakePiEnvironment({ script: READ_JOURNAL_SCRIPT }));
       const agent = await createAgent({
         cwd: environment.vaultDir,
-        env: agentEnv(environment),
+        env: environment.env,
       });
 
       await agent.ask("First question.");
@@ -174,10 +185,10 @@ describe("NazarAgent over pi RPC", () => {
     "fails fast when the pi binary cannot be started",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
-      const environment = await createTestEnvironment();
+      const environment = await track(createFakePiEnvironment({ script: READ_JOURNAL_SCRIPT }));
       const agent = await createAgent({
         cwd: environment.vaultDir,
-        env: agentEnv(environment),
+        env: environment.env,
         piPath: "/nonexistent/nazar-test-pi",
       });
 
@@ -192,12 +203,12 @@ describe("NazarAgent over pi RPC", () => {
     "applies a changed pi path at the next spawn",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
-      const environment = await createTestEnvironment();
+      const environment = await track(createFakePiEnvironment({ script: READ_JOURNAL_SCRIPT }));
       let configuredPath: string | undefined = "/nonexistent/nazar-test-pi";
 
       const agent = await createAgent({
         cwd: environment.vaultDir,
-        env: agentEnv(environment),
+        env: environment.env,
         piPath: () => configuredPath,
       });
 
@@ -210,11 +221,7 @@ describe("NazarAgent over pi RPC", () => {
       agent.subscribe((event) => events.push(event));
       await agent.ask("Summarize today's journal.");
 
-      const text = events
-        .filter((event): event is { type: "text"; delta: string } => event.type === "text")
-        .map((event) => event.delta)
-        .join("");
-      expect(text).toContain("A grounded summary.");
+      expect(textOf(events)).toContain("A grounded summary.");
     },
   );
 
@@ -223,21 +230,17 @@ describe("NazarAgent over pi RPC", () => {
     { timeout: TEST_TIMEOUT_MS },
     async () => {
       // Desktop Obsidian sessions typically do not inherit the shell PATH.
-      const environment = await createTestEnvironment();
+      const environment = await track(createFakePiEnvironment({ script: READ_JOURNAL_SCRIPT }));
       const agent = await createAgent({
         cwd: environment.vaultDir,
-        env: { ...agentEnv(environment), PATH: "/usr/bin:/bin" },
+        env: { ...environment.env, PATH: "/usr/bin:/bin" },
       });
 
       const events: NazarEvent[] = [];
       agent.subscribe((event) => events.push(event));
       await agent.ask("Summarize today's journal.");
 
-      const text = events
-        .filter((event): event is { type: "text"; delta: string } => event.type === "text")
-        .map((event) => event.delta)
-        .join("");
-      expect(text).toContain("A grounded summary.");
+      expect(textOf(events)).toContain("A grounded summary.");
     },
   );
 
@@ -245,14 +248,14 @@ describe("NazarAgent over pi RPC", () => {
     "routes write approval through the dialog responder",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
-      const environment = await createTestEnvironment({
-        respond: writeGateRespond,
-      });
-      await installWriteGateExtension(environment);
+      const environment = await track(createFakePiEnvironment({
+        script: WRITE_NOTE_SCRIPT,
+        extensions: { "gate.ts": WRITE_GATE_EXTENSION },
+      }));
 
       const agent = await createAgent({
         cwd: environment.vaultDir,
-        env: agentEnv(environment),
+        env: environment.env,
       });
       agent.setUiResponder((request) => {
         agent.respondUi(request.id, { confirmed: true });
@@ -276,14 +279,14 @@ describe("NazarAgent over pi RPC", () => {
     "blocks a write the user rejects",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
-      const environment = await createTestEnvironment({
-        respond: writeGateRespond,
-      });
-      await installWriteGateExtension(environment);
+      const environment = await track(createFakePiEnvironment({
+        script: WRITE_NOTE_SCRIPT,
+        extensions: { "gate.ts": WRITE_GATE_EXTENSION },
+      }));
 
       const agent = await createAgent({
         cwd: environment.vaultDir,
-        env: agentEnv(environment),
+        env: environment.env,
       });
       agent.setUiResponder((request) => {
         agent.respondUi(request.id, { confirmed: false });
@@ -308,33 +311,13 @@ describe("NazarAgent over pi RPC", () => {
     "cancels an active run",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
-      const environment = await createTestEnvironment({
-        respond: (requestIndex, response) => {
-          beginEventStream(response);
-          sendChunk(response, {
-            choices: [
-              {
-                index: 0,
-                delta: { role: "assistant", content: "Starting" },
-                finish_reason: null,
-              },
-            ],
-          });
-          if (requestIndex > 0) {
-            // Keep the stream open past the first request so the run stays
-            // active until the test cancels it.
-            return;
-          }
-          sendChunk(response, {
-            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-          });
-          response.end();
-        },
-      });
+      const environment = await track(createFakePiEnvironment({
+        script: [[{ text: "Starting" }, { hang: true }]],
+      }));
 
       const agent = await createAgent({
         cwd: environment.vaultDir,
-        env: agentEnv(environment),
+        env: environment.env,
       });
 
       let sawText: () => void = () => undefined;
@@ -359,220 +342,12 @@ describe("NazarAgent over pi RPC", () => {
   );
 });
 
-interface TestEnvironmentOptions {
-  respond?(requestIndex: number, response: ServerResponse): void;
-}
-
-async function createTestEnvironment(
-  options: TestEnvironmentOptions = {},
-): Promise<TestEnvironment> {
-  const root = await mkdtemp(join(tmpdir(), "nazar-test-"));
-  const vaultDir = join(root, "vault");
-  const agentDir = join(root, "agent");
-  await mkdir(join(vaultDir, "Journal"), { recursive: true });
-  await mkdir(agentDir, { recursive: true });
-  await writeFile(
-    join(vaultDir, "Journal", "Today.md"),
-    "Today I finished the integration spike.",
-  );
-
-  const requestBodies: any[] = [];
-  let requestIndex = 0;
-  const server = createServer((request, response) => {
-    let body = "";
-    request.on("data", (chunk) => {
-      body += chunk;
-    });
-    request.on("end", () => {
-      try {
-        requestBodies.push(JSON.parse(body));
-      } catch {
-        requestBodies.push(undefined);
-      }
-
-      const respond = options.respond ?? defaultRespond;
-      respond(requestIndex, response);
-      requestIndex += 1;
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Synthetic model server did not expose a TCP port");
-  }
-
-  await writeFile(
-    join(agentDir, "settings.json"),
-    JSON.stringify({
-      defaultProvider: "nazar-test",
-      defaultModel: "test-model",
-      enableInstallTelemetry: false,
-    }),
-  );
-  await writeFile(
-    join(agentDir, "models.json"),
-    JSON.stringify({
-      providers: {
-        "nazar-test": {
-          baseUrl: `http://127.0.0.1:${address.port}/v1`,
-          api: "openai-completions",
-          apiKey: "local-test",
-          compat: {
-            supportsDeveloperRole: false,
-            supportsReasoningEffort: false,
-          },
-          models: [
-            {
-              id: "test-model",
-              name: "Nazar test model",
-              reasoning: false,
-              input: ["text"],
-              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-              contextWindow: 32768,
-              maxTokens: 4096,
-            },
-          ],
-        },
-      },
-    }),
-  );
-
-  const environment: TestEnvironment = {
-    vaultDir,
-    agentDir,
-    requestBodies,
-    close: async () => {
-      server.closeAllConnections();
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      });
-      await rm(root, { recursive: true, force: true });
-    },
-  };
+async function track(
+  environmentPromise: Promise<FakePiEnvironment>,
+): Promise<FakePiEnvironment> {
+  const environment = await environmentPromise;
   environments.push(environment);
   return environment;
-}
-
-function defaultRespond(requestIndex: number, response: ServerResponse): void {
-  beginEventStream(response);
-
-  if (requestIndex === 0) {
-    sendChunk(response, {
-      choices: [
-        {
-          index: 0,
-          delta: {
-            role: "assistant",
-            tool_calls: [
-              {
-                index: 0,
-                id: "read-note",
-                type: "function",
-                function: {
-                  name: "read",
-                  arguments: '{"path":"Journal/Today.md"}',
-                },
-              },
-            ],
-          },
-          finish_reason: null,
-        },
-      ],
-    });
-    sendChunk(response, {
-      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-    });
-  } else {
-    sendChunk(response, {
-      choices: [
-        {
-          index: 0,
-          delta: { role: "assistant", content: "A grounded summary." },
-          finish_reason: null,
-        },
-      ],
-    });
-    sendChunk(response, {
-      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-    });
-  }
-
-  response.end();
-}
-
-function agentEnv(environment: TestEnvironment): Record<string, string> {
-  return {
-    PI_CODING_AGENT_DIR: environment.agentDir,
-    PI_OFFLINE: "1",
-    PI_SKIP_VERSION_CHECK: "1",
-  };
-}
-
-/** Model choreography that attempts one write and then answers. */
-function writeGateRespond(requestIndex: number, response: ServerResponse): void {
-  beginEventStream(response);
-
-  if (requestIndex === 0) {
-    sendChunk(response, {
-      choices: [
-        {
-          index: 0,
-          delta: {
-            role: "assistant",
-            tool_calls: [
-              {
-                index: 0,
-                id: "write-note",
-                type: "function",
-                function: {
-                  name: "write",
-                  arguments: '{"path":"Drafts/Note.md","content":"gated content"}',
-                },
-              },
-            ],
-          },
-          finish_reason: null,
-        },
-      ],
-    });
-    sendChunk(response, {
-      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-    });
-  } else {
-    sendChunk(response, {
-      choices: [
-        {
-          index: 0,
-          delta: { role: "assistant", content: "Done." },
-          finish_reason: null,
-        },
-      ],
-    });
-    sendChunk(response, {
-      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-    });
-  }
-
-  response.end();
-}
-
-async function installWriteGateExtension(environment: TestEnvironment): Promise<void> {
-  const extensionsDir = join(environment.vaultDir, ".pi", "extensions");
-  await mkdir(extensionsDir, { recursive: true });
-  await writeFile(
-    join(extensionsDir, "gate.ts"),
-    [
-      "export default function (pi: any): void {",
-      "  pi.on('tool_call', async (event: any, ctx: any) => {",
-      "    if (event.toolName !== 'write') return;",
-      "    const ok = await ctx.ui.confirm('Approve write?', String(event.input.path));",
-      "    if (!ok) return { block: true, reason: 'Rejected by user' };",
-      "  });",
-      "}",
-      "",
-    ].join("\n"),
-  );
 }
 
 async function createAgent(
@@ -583,20 +358,9 @@ async function createAgent(
   return agent;
 }
 
-function beginEventStream(response: ServerResponse): void {
-  response.writeHead(200, {
-    "content-type": "text/event-stream",
-    connection: "keep-alive",
-    "cache-control": "no-cache",
-  });
-}
-
-function sendChunk(response: ServerResponse, chunk: object): void {
-  response.write(`data: ${JSON.stringify({
-    id: "synthetic-response",
-    object: "chat.completion.chunk",
-    created: 0,
-    model: "test-model",
-    ...chunk,
-  })}\n\n`);
+function textOf(events: NazarEvent[]): string {
+  return events
+    .filter((event): event is { type: "text"; delta: string } => event.type === "text")
+    .map((event) => event.delta)
+    .join("");
 }
