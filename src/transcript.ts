@@ -1,4 +1,5 @@
 import type { BolovanEvent } from "./bolovan-agent";
+import { splitAttachedNotes } from "./context";
 
 export type TranscriptToolStatus = "running" | "done" | "error";
 
@@ -6,6 +7,8 @@ export interface TranscriptUserItem {
   kind: "user";
   id: string;
   text: string;
+  /** Paths of vault notes attached to this message, if any. */
+  attachments?: string[];
 }
 
 export interface TranscriptAssistantItem {
@@ -126,10 +129,14 @@ export class Transcript {
     // ui-request is dialog traffic, not transcript content.
   }
 
-  /** A user message sent from this surface. */
-  say(text: string): void {
+  /** A user message sent from this surface, optionally with attached notes. */
+  say(text: string, attachments?: string[]): void {
     this.finalizeOpenAssistant();
-    this.notify(this.append({ kind: "user", text }));
+    this.notify(this.append({
+      kind: "user",
+      text,
+      attachments: attachments?.length ? attachments : undefined,
+    }));
   }
 
   /** A local notice: failures and other surface-level messages. */
@@ -178,11 +185,16 @@ export class Transcript {
     }
 
     if (message.role === "user") {
-      // Attachments are ignored for now, but the message text stays —
-      // dropping the whole message was the old bug.
-      const text = messageText(message.content);
+      // pi's native attachments (images) are ignored, but the message text
+      // stays — dropping the whole message was the old bug. Bolovan's own
+      // attached-notes block is split out so only the typed text shows.
+      const { text, paths } = splitAttachedNotes(messageText(message.content));
       if (text.trim()) {
-        this.notify(this.append({ kind: "user", text }));
+        this.notify(this.append({
+          kind: "user",
+          text,
+          attachments: paths.length ? paths : undefined,
+        }));
       }
       return;
     }

@@ -12,6 +12,15 @@ Requires the `pi` CLI installed on the machine. Conversations persist in pi's sh
 - **Stop current agent run** — aborts the running agent.
 - **Start a new Bolovan conversation** — starts a fresh session.
 
+## Chat context
+
+Messages carry note context with them, Copilot-style:
+
+- **Active note** — the open note is attached automatically. The file icon in the composer toggles this; the context line above the input shows what will travel with the next message.
+- **`@` mentions** — type `@` in the composer to pick more notes from a ranked list; mentions appear as `@[[note]]`. The paperclip button opens the same list as a fuzzy search.
+
+Attached notes are inlined into the prompt pi receives, so the agent has their contents without spending a tool call. The transcript shows attachment chips on messages instead of the raw contents.
+
 The pi process lives while the chat view is open. Extension dialogs — including the vault's write-approval gate — appear as Obsidian modals.
 
 Settings: an optional explicit `pi` binary path, used when `PATH` lookup is not enough (common when Obsidian's desktop environment differs from your shell).

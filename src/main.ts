@@ -13,11 +13,13 @@ import { BolovanAgent } from "./bolovan-agent";
 interface BolovanSettings {
   piPath?: string;
   sessionFile?: string;
+  includeActiveNote?: boolean;
 }
 
 export default class BolovanPlugin extends Plugin {
   private agentInternal: BolovanAgent | undefined;
   private bolovanSettings: BolovanSettings = {};
+  private lastOpenedNote: TFile | undefined;
 
   async onload(): Promise<void> {
     this.bolovanSettings = Object.assign({}, (await this.loadData()) as BolovanSettings | undefined);
@@ -84,6 +86,16 @@ export default class BolovanPlugin extends Plugin {
     });
 
     this.addSettingTab(new BolovanSettingTab(this.app, this));
+
+    // The chat attaches "the open note", but its own leaf is active while
+    // the user types; remember the last note actually opened.
+    this.registerEvent(
+      this.app.workspace.on("file-open", (file) => {
+        if (file && file.extension === "md") {
+          this.lastOpenedNote = file;
+        }
+      }),
+    );
   }
 
   onunload(): void {
@@ -97,6 +109,29 @@ export default class BolovanPlugin extends Plugin {
 
   get piPath(): string | undefined {
     return this.bolovanSettings.piPath;
+  }
+
+  /** Whether outgoing chat messages attach the open note as context. */
+  get includeActiveNote(): boolean {
+    return this.bolovanSettings.includeActiveNote ?? true;
+  }
+
+  async setIncludeActiveNote(include: boolean): Promise<void> {
+    this.bolovanSettings.includeActiveNote = include;
+    await this.saveData(this.bolovanSettings);
+  }
+
+  /**
+   * The note to attach as context: the file in the active leaf when it is
+   * a note, otherwise the last note opened before the chat took focus.
+   * Non-markdown files are never attached.
+   */
+  activeNote(): TFile | undefined {
+    const current = this.app.workspace.getActiveFile();
+    if (current) {
+      return current.extension === "md" ? current : undefined;
+    }
+    return this.lastOpenedNote;
   }
 
   /** Start the pi process if needed. Idempotent. */

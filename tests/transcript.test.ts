@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Transcript, type TranscriptItem } from "../src/transcript";
+import { buildPromptWithNotes } from "../src/context";
 import type { BolovanEvent } from "../src/bolovan-agent";
 
 function collectChanges(transcript: Transcript): TranscriptItem[] {
@@ -72,6 +73,23 @@ describe("Transcript history mapping", () => {
 
     expect(transcript.all()).toHaveLength(1);
     expect(transcript.all()[0]).toMatchObject({ kind: "user", text: "What is in this image?" });
+  });
+
+  it("splits attached-notes blocks out of history user messages", () => {
+    const transcript = new Transcript();
+    const prompt = buildPromptWithNotes("Summarize this.", [
+      { path: "00-Inbox/Note.md", content: "note body" },
+      { path: "02-Projects/Plan.md", content: "plan body" },
+    ]);
+
+    transcript.loadHistory([{ role: "user", content: prompt }]);
+
+    expect(transcript.all()).toHaveLength(1);
+    expect(transcript.all()[0]).toMatchObject({
+      kind: "user",
+      text: "Summarize this.",
+      attachments: ["00-Inbox/Note.md", "02-Projects/Plan.md"],
+    });
   });
 
   it("skips thinking blocks", () => {
@@ -239,5 +257,20 @@ describe("Transcript continuity and surface messages", () => {
     transcript.note("Bolovan failed: pi exited");
 
     expect(changes.map((item) => item.kind)).toEqual(["user", "system"]);
+  });
+
+  it("records attached notes on user items and omits them when absent", () => {
+    const transcript = new Transcript();
+
+    transcript.say("with attachments", ["A.md", "B.md"]);
+    transcript.say("without attachments");
+
+    expect(transcript.all()[0]).toMatchObject({
+      kind: "user",
+      text: "with attachments",
+      attachments: ["A.md", "B.md"],
+    });
+    expect(transcript.all()[1]).toMatchObject({ kind: "user", text: "without attachments" });
+    expect((transcript.all()[1] as { attachments?: string[] }).attachments).toBeUndefined();
   });
 });

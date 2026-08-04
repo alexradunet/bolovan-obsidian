@@ -26,3 +26,8 @@ these are the domain nouns.
 - **Item** — one block of a transcript: `user`, `assistant` (a markdown text
   block, possibly still streaming), `tool` (a call with running/done/error
   status), or `system` (notices, failures, ran-commands).
+- **Attachment** — a vault note whose contents are inlined into an outgoing
+  prompt. The open note attaches automatically (toggleable); more come from
+  mentions.
+- **Mention** — an `@[[note]]` marker typed in the composer; resolved to a
+  note and turned into an attachment at send time.

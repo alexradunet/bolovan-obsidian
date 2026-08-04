@@ -15,6 +15,7 @@ Module._load = function loadWithObsidianStub(request, parent, isMain) {
       TFile: class TFile {},
       FileSystemAdapter: class FileSystemAdapter {},
       ItemView: class ItemView {},
+      FuzzySuggestModal: class FuzzySuggestModal {},
       Modal: class Modal {
         open() {}
         close() {}
@@ -23,6 +24,7 @@ Module._load = function loadWithObsidianStub(request, parent, isMain) {
         load() {}
         unload() {}
       },
+      setIcon: () => undefined,
       MarkdownRenderer: { render: async () => undefined },
       normalizePath: (value) => value,
     };

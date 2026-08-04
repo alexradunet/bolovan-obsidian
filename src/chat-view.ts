@@ -1,6 +1,14 @@
-import { Component, ItemView, MarkdownRenderer, Modal, setIcon, WorkspaceLeaf } from "obsidian";
+import { App, Component, FuzzySuggestModal, ItemView, MarkdownRenderer, Modal, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import type BolovanPlugin from "./main";
 import type { BolovanEvent, BolovanUiRequest } from "./bolovan-agent";
+import {
+  buildPromptWithNotes,
+  matchNoteCandidates,
+  MAX_ATTACHMENTS,
+  parseMentionLinkpaths,
+  type NoteAttachment,
+  type NoteCandidate,
+} from "./context";
 import { Transcript, type TranscriptItem } from "./transcript";
 
 export const BOLOVAN_CHAT_VIEW = "bolovan-chat-view";
@@ -24,14 +32,17 @@ export class BolovanChatView extends ItemView {
   private transcriptEl!: HTMLElement;
   private emptyEl!: HTMLElement;
   private jumpButtonEl!: HTMLButtonElement;
+  private contextRowEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
   private sendButtonEl!: HTMLButtonElement;
+  private activeNoteToggleEl!: HTMLButtonElement;
   private newSessionButtonEl!: HTMLButtonElement;
   private sessionSelectEl!: HTMLSelectElement;
   private modelSelectEl!: HTMLSelectElement;
   private thinkingSelectEl!: HTMLSelectElement;
   private statusEl!: HTMLElement;
   private statsEl!: HTMLElement;
+  private mentionPicker!: MentionPicker;
   private pinnedToBottom = true;
 
   constructor(
@@ -78,6 +89,10 @@ export class BolovanChatView extends ItemView {
     } catch (error) {
       this.transcript.note(describeError(error));
     }
+
+    // The context row reflects the note behind the chat; keep it current.
+    this.updateContextRow();
+    this.registerEvent(this.app.workspace.on("file-open", () => this.updateContextRow()));
   }
 
   async onClose(): Promise<void> {
@@ -130,7 +145,9 @@ export class BolovanChatView extends ItemView {
     setIcon(this.jumpButtonEl, "arrow-down");
     this.jumpButtonEl.addEventListener("click", () => this.scrollToBottom(true));
 
-    const composer = this.rootEl.createDiv({ cls: "bolovan-panel__composer" });
+    const composerStage = this.rootEl.createDiv({ cls: "bolovan-panel__composer-stage" });
+    const composer = composerStage.createDiv({ cls: "bolovan-panel__composer" });
+    this.contextRowEl = composer.createDiv({ cls: "bolovan-chat__context" });
     this.inputEl = composer.createEl("textarea", {
       attr: {
         placeholder: "Ask Bolovan…",
@@ -138,15 +155,51 @@ export class BolovanChatView extends ItemView {
         "aria-label": "Message Bolovan",
       },
     });
-    this.inputEl.addEventListener("input", () => this.resizeComposer());
+    this.inputEl.addEventListener("input", () => {
+      this.resizeComposer();
+      this.mentionPicker.update();
+    });
+    this.inputEl.addEventListener("keyup", () => this.mentionPicker.update());
+    this.inputEl.addEventListener("click", () => this.mentionPicker.update());
+    this.inputEl.addEventListener("blur", () => this.mentionPicker.close());
     this.inputEl.addEventListener("keydown", (event) => {
+      if (this.mentionPicker.handleKeydown(event)) {
+        event.preventDefault();
+        return;
+      }
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
         void this.send();
       }
     });
+    this.mentionPicker = new MentionPicker(
+      this.inputEl,
+      composerStage,
+      () => this.noteCandidates(),
+      () => {
+        this.resizeComposer();
+        this.inputEl.focus();
+      },
+    );
 
     const controls = composer.createDiv({ cls: "bolovan-chat__controls" });
+    const attachNoteButtonEl = controls.createEl("button", {
+      cls: "clickable-icon bolovan-chat__pick-note",
+      attr: { "aria-label": "Attach note", title: "Attach note (@)" },
+    });
+    setIcon(attachNoteButtonEl, "paperclip");
+    attachNoteButtonEl.addEventListener("click", () => {
+      new NoteAttachModal(this.app, (file) => this.insertMentionAtCaret(file)).open();
+    });
+
+    this.activeNoteToggleEl = controls.createEl("button", {
+      cls: "clickable-icon bolovan-chat__active-note-toggle",
+    });
+    setIcon(this.activeNoteToggleEl, "file-input");
+    this.activeNoteToggleEl.addEventListener("click", () => {
+      void this.toggleActiveNoteAttachment();
+    });
+
     this.modelSelectEl = controls.createEl("select", {
       cls: "bolovan-chat__models",
       attr: { "aria-label": "Model", title: "Model" },
@@ -272,6 +325,19 @@ export class BolovanChatView extends ItemView {
       return;
     }
 
+    if (item.kind === "user") {
+      el.empty();
+      if (item.attachments?.length) {
+        const chips = el.createDiv({ cls: "bolovan-chat__attachments" });
+        for (const path of item.attachments) {
+          const chip = chips.createSpan({ cls: "bolovan-chat__attachment", text: basenameOfPath(path) });
+          chip.setAttr("title", path);
+        }
+      }
+      el.createDiv({ text: item.text });
+      return;
+    }
+
     el.setText(item.text);
   }
 
@@ -344,7 +410,13 @@ export class BolovanChatView extends ItemView {
     }
     this.inputEl.value = "";
     this.resizeComposer();
-    this.transcript.say(text);
+    this.mentionPicker.close();
+
+    const { notes, warnings } = await this.collectAttachedNotes(text);
+    this.transcript.say(text, notes.map((note) => note.path));
+    for (const warning of warnings) {
+      this.transcript.note(warning);
+    }
     this.scrollToBottom(true);
 
     try {
@@ -354,14 +426,121 @@ export class BolovanChatView extends ItemView {
         throw new Error("Bolovan is not ready");
       }
 
+      const prompt = buildPromptWithNotes(text, notes);
       if (agent.status().isRunning) {
-        await agent.steer(text);
+        await agent.steer(prompt);
       } else {
-        await agent.ask(text);
+        await agent.ask(prompt);
       }
     } catch (error) {
       this.transcript.note(describeError(error));
     }
+  }
+
+  /**
+   * Gather the note contents attached to an outgoing message: the active
+   * note (when enabled) plus every resolvable @[[mention]] in the text.
+   * Unresolvable mentions are reported but never block the send.
+   */
+  private async collectAttachedNotes(
+    text: string,
+  ): Promise<{ notes: NoteAttachment[]; warnings: string[] }> {
+    const notes: NoteAttachment[] = [];
+    const warnings: string[] = [];
+    const seen = new Set<string>();
+
+    const attach = async (file: TFile): Promise<void> => {
+      if (seen.has(file.path)) {
+        return;
+      }
+      seen.add(file.path);
+      if (notes.length >= MAX_ATTACHMENTS) {
+        warnings.push(`Attachment limit reached; ${file.path} was not attached.`);
+        return;
+      }
+      try {
+        const content = await this.app.vault.cachedRead(file);
+        notes.push({ path: file.path, content });
+      } catch (error) {
+        warnings.push(`Could not read ${file.path}: ${describeError(error)}`);
+      }
+    };
+
+    if (this.plugin.includeActiveNote) {
+      const activeNote = this.plugin.activeNote();
+      if (activeNote) {
+        await attach(activeNote);
+      }
+    }
+
+    for (const linkpath of parseMentionLinkpaths(text)) {
+      const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, "");
+      if (!file) {
+        warnings.push(`No note found for @[[${linkpath}]] — sent without it.`);
+        continue;
+      }
+      await attach(file);
+    }
+
+    return { notes, warnings };
+  }
+
+  /** All vault notes, newest first, as mention candidates. */
+  private noteCandidates(): NoteCandidate[] {
+    return [...this.app.vault.getMarkdownFiles()]
+      .sort((a, b) => b.stat.mtime - a.stat.mtime)
+      .map((file) => ({ path: file.path, basename: file.basename }));
+  }
+
+  /** Insert an @[[mention]] for a note chosen outside the composer. */
+  private insertMentionAtCaret(file: TFile): void {
+    const duplicates = this.app.vault
+      .getMarkdownFiles()
+      .filter((other) => other.basename === file.basename);
+    const label = duplicates.length <= 1 ? file.basename : file.path.replace(/\.md$/, "");
+
+    const caret = this.inputEl.selectionStart ?? this.inputEl.value.length;
+    const value = this.inputEl.value;
+    const needsLeadingSpace = caret > 0 && !/\s/.test(value.charAt(caret - 1));
+    const inserted = `${needsLeadingSpace ? " " : ""}@[[${label}]] `;
+    this.inputEl.value = value.slice(0, caret) + inserted + value.slice(caret);
+    const newCaret = caret + inserted.length;
+    this.inputEl.setSelectionRange(newCaret, newCaret);
+    this.resizeComposer();
+    this.inputEl.focus();
+  }
+
+  private async toggleActiveNoteAttachment(): Promise<void> {
+    await this.plugin.setIncludeActiveNote(!this.plugin.includeActiveNote);
+    this.updateContextRow();
+  }
+
+  /** Show what travels with the next message: the active note, if enabled. */
+  private updateContextRow(): void {
+    this.contextRowEl.empty();
+
+    const including = this.plugin.includeActiveNote;
+    const activeNote = including ? this.plugin.activeNote() : undefined;
+    this.activeNoteToggleEl.toggleClass("is-on", including);
+    this.activeNoteToggleEl.setAttr(
+      "aria-label",
+      including ? "Active note is attached" : "Active note is excluded",
+    );
+    this.activeNoteToggleEl.setAttr(
+      "title",
+      including ? "Active note attached — click to exclude" : "Attach the active note — click to include",
+    );
+
+    if (activeNote) {
+      const chip = this.contextRowEl.createSpan({ cls: "bolovan-chat__context-note" });
+      setIcon(chip.createSpan({ cls: "bolovan-chat__context-icon" }), "file-text");
+      chip.appendText(activeNote.basename);
+      chip.setAttr("title", activeNote.path);
+    }
+    this.contextRowEl.createSpan({
+      cls: "bolovan-chat__context-hint",
+      text: including ? "· type @ to attach more notes" : "type @ to attach notes",
+    });
   }
 
   private async onSendButton(): Promise<void> {
@@ -545,8 +724,218 @@ function formatTokens(tokens: number): string {
   return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
 }
 
+function basenameOfPath(path: string): string {
+  return path.split("/").pop() ?? path;
+}
+
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+interface MentionToken {
+  start: number;
+  end: number;
+  query: string;
+}
+
+/**
+ * Copilot-style mention picker for the composer. Typing `@` opens a ranked
+ * list of vault notes; committing replaces the `@query` token with
+ * `@[[Note]]`. The list floats above the composer stage.
+ */
+class MentionPicker {
+  private readonly el: HTMLElement;
+  private candidates: NoteCandidate[] = [];
+  private selectedIndex = 0;
+  private token: MentionToken | undefined;
+  private suppressedTokenStart = -1;
+
+  constructor(
+    private readonly textarea: HTMLTextAreaElement,
+    host: HTMLElement,
+    private readonly getNotes: () => NoteCandidate[],
+    private readonly afterCommit: () => void,
+  ) {
+    this.el = host.createDiv({ cls: "bolovan-chat__picker" });
+    this.el.style.display = "none";
+  }
+
+  isOpen(): boolean {
+    return this.token !== undefined;
+  }
+
+  /**
+   * Keyboard handling while the picker is open. Returns true when the event
+   * was consumed so the composer neither sends nor inserts the character.
+   */
+  handleKeydown(event: KeyboardEvent): boolean {
+    if (!this.isOpen()) {
+      return false;
+    }
+    if (event.key === "ArrowDown") {
+      this.move(1);
+      return true;
+    }
+    if (event.key === "ArrowUp") {
+      this.move(-1);
+      return true;
+    }
+    if (event.key === "Enter" || event.key === "Tab") {
+      const selected = this.candidates[this.selectedIndex];
+      if (selected) {
+        this.commit(selected);
+      }
+      return true;
+    }
+    if (event.key === "Escape") {
+      // Stay closed until the user starts a fresh mention token.
+      this.suppressedTokenStart = this.token?.start ?? -1;
+      this.close();
+      return true;
+    }
+    return false;
+  }
+
+  /** Re-read the caret, refresh the candidate list, repaint. */
+  update(): void {
+    const token = findMentionToken(this.textarea);
+    if (!token || token.start === this.suppressedTokenStart) {
+      this.close();
+      return;
+    }
+
+    this.token = token;
+    const notes = this.getNotes();
+    const query = token.query.trim();
+    this.candidates = query ? matchNoteCandidates(notes, query) : notes.slice(0, 8);
+    if (this.candidates.length === 0) {
+      this.close();
+      return;
+    }
+    if (this.selectedIndex >= this.candidates.length) {
+      this.selectedIndex = 0;
+    }
+    this.render();
+  }
+
+  close(): void {
+    this.token = undefined;
+    this.el.empty();
+    this.el.style.display = "none";
+  }
+
+  private move(delta: number): void {
+    const count = this.candidates.length;
+    if (count === 0) {
+      return;
+    }
+    this.selectedIndex = (this.selectedIndex + delta + count) % count;
+    this.paintSelection();
+  }
+
+  /** Replace the `@query` token with the picked note's mention. */
+  private commit(note: NoteCandidate): void {
+    const token = this.token;
+    if (!token) {
+      return;
+    }
+    const label = mentionLabel(note, this.getNotes());
+    const inserted = `@[[${label}]] `;
+    const value = this.textarea.value;
+    this.textarea.value = value.slice(0, token.start) + inserted + value.slice(token.end);
+    const caret = token.start + inserted.length;
+    this.textarea.setSelectionRange(caret, caret);
+    this.close();
+    this.afterCommit();
+  }
+
+  private render(): void {
+    this.el.empty();
+    this.el.style.display = "";
+    this.candidates.forEach((note, index) => {
+      const item = this.el.createDiv({ cls: "bolovan-chat__picker-item" });
+      item.toggleClass("is-selected", index === this.selectedIndex);
+      item.createSpan({ cls: "bolovan-chat__picker-name", text: note.basename });
+      item.createSpan({ cls: "bolovan-chat__picker-path", text: folderOf(note.path) });
+      item.addEventListener("mouseenter", () => {
+        this.selectedIndex = index;
+        this.paintSelection();
+      });
+      item.addEventListener("mousedown", (event) => {
+        // mousedown (not click), with preventDefault so the textarea keeps
+        // focus instead of blurring and closing the picker first.
+        event.preventDefault();
+        this.commit(note);
+      });
+    });
+  }
+
+  private paintSelection(): void {
+    const items = this.el.querySelectorAll(".bolovan-chat__picker-item");
+    items.forEach((item, index) => {
+      item.toggleClass("is-selected", index === this.selectedIndex);
+    });
+  }
+}
+
+/** The mention token is the `@query` immediately before the caret. */
+function findMentionToken(textarea: HTMLTextAreaElement): MentionToken | undefined {
+  const caret = textarea.selectionStart;
+  const upto = textarea.value.slice(0, caret);
+  const atIndex = upto.lastIndexOf("@");
+  if (atIndex < 0) {
+    return undefined;
+  }
+  const before = upto.charAt(atIndex - 1);
+  const startsToken = before === "" || /\s/.test(before);
+  if (!startsToken) {
+    return undefined;
+  }
+  const query = upto.slice(atIndex + 1);
+  const completedMention = query.includes("[") || query.includes("]");
+  if (query.includes("\n") || completedMention || query.length > 80) {
+    return undefined;
+  }
+  return { start: atIndex, end: caret, query };
+}
+
+/** Basename when unique in the vault, full linkpath otherwise. */
+function mentionLabel(note: NoteCandidate, all: NoteCandidate[]): string {
+  const sameName = all.filter((other) => other.basename === note.basename);
+  if (sameName.length <= 1) {
+    return note.basename;
+  }
+  return note.path.replace(/\.md$/, "");
+}
+
+function folderOf(path: string): string {
+  const folder = path.split("/").slice(0, -1).join("/");
+  return folder || "/";
+}
+
+/** Fuzzy note chooser behind the composer's paperclip button. */
+class NoteAttachModal extends FuzzySuggestModal<TFile> {
+  constructor(
+    app: App,
+    private readonly choose: (file: TFile) => void,
+  ) {
+    super(app);
+    this.setPlaceholder("Attach a note…");
+  }
+
+  getItems(): TFile[] {
+    return [...this.app.vault.getMarkdownFiles()].sort(
+      (a, b) => b.stat.mtime - a.stat.mtime,
+    );
+  }
+
+  getItemText(file: TFile): string {
+    return file.path;
+  }
+
+  onChooseItem(file: TFile): void {
+    this.choose(file);
+  }
 }
 
 /**
