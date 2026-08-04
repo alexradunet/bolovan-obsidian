@@ -15,10 +15,11 @@ When principles compete, decide in this order:
 1. Preserve user data and explicit approval boundaries.
 2. Deliver the vital user outcome—the 20% of behavior that creates 80% of the
    value.
-3. Keep the whole system understandable by one maintainer.
-4. Use Obsidian's public API and platform capabilities directly.
-5. Minimize code, concepts, files, states, dependencies, and configuration.
-6. Optimize performance only where measurement or a hard constraint justifies
+3. Keep every desktop and mobile support promise truthful.
+4. Keep the whole system understandable by one maintainer.
+5. Use Obsidian's public API and platform capabilities directly.
+6. Minimize code, concepts, files, states, dependencies, and configuration.
+7. Optimize performance only where measurement or a hard constraint justifies
    it.
 
 Do not trade simplicity for theoretical flexibility, architectural fashion, or
@@ -121,10 +122,31 @@ Bolovan is an Obsidian plugin, not a framework around Obsidian.
   or enables a real test seam.
 - Target the public API of the minimum supported Obsidian version. Do not depend
   on undocumented internals simply to save a few lines.
+- Hidden configuration is the justified `Vault.adapter` exception. Resolve it
+  through `Vault.configDir`; never assume the directory is named `.obsidian`.
+- Expose configuration work as explicit capabilities, not unrestricted adapter
+  access. Supported capabilities include reading Bolovan's own directory and
+  creating or modifying Obsidian themes, CSS snippets, and specifically named
+  settings.
+- Every model-initiated configuration mutation gets an exact preview, explicit
+  approval, a stale-state check, and a recoverable path where practical.
+- Other plugins' configuration, secrets, and unrelated hidden files are outside
+  those capabilities. Technical reach is not product authorization.
 
 ## Dependency budget
 
-The default answer to a new external dependency is no.
+The default answer to a new external dependency is no. A new runtime dependency
+is allowed only when every condition below is met:
+
+1. It enables an essential, already-approved user outcome.
+2. Obsidian and Web Platform APIs cannot provide the capability.
+3. A small local implementation would be materially riskier or more complex.
+4. Its license, maintenance, security surface, mobile support, transitive graph,
+   initialization cost, and shipped bundle cost have been reviewed.
+5. It is isolated behind the narrowest practical boundary and loaded only when
+   needed.
+6. Its removal or replacement path can be explained briefly.
+7. The justification is recorded in the PR or a load-bearing ADR.
 
 - Treat every dependency as source code Bolovan must understand, ship, update,
   audit, and debug.
@@ -141,6 +163,16 @@ The default answer to a new external dependency is no.
 - Remove dependencies that no longer justify their cost.
 - Keep provider-specific heavy dependencies behind the narrowest practical
   boundary and load them only when their provider needs them.
+- Reject convenience helpers, state frameworks, formatting packages,
+  dependency-injection libraries, and thin wrappers over native APIs.
+
+Transformers.js and ONNX Runtime Web are the permanent narrow exception for the
+essential local WebGPU provider. Keep one curated model path, lazy-load both
+runtimes behind one boundary, expose no general ML framework to the rest of the
+plugin, and provide no CPU/WASM fallback. Pin compatibility-sensitive versions
+exactly. A development snapshot requires a documented compatibility reason and
+an explicit upgrade test. Additional model stacks require demonstrated value
+and must pass the full admission test again.
 
 ## Architecture vocabulary
 
@@ -162,19 +194,62 @@ Apply these checks:
 - Accept dependencies from callers rather than constructing hard-to-test dependencies internally.
 - Return results where practical; keep side effects concentrated.
 
+## Comprehension budget
+
+"Fits in one head" is enforced through navigation and concepts, not line-count
+limits:
+
+- Keep the runtime architecture explainable on one page in roughly ten named
+  concepts or fewer.
+- Keep a common user action traceable through no more than four production
+  modules.
+- A routine feature should normally change one policy-owning module plus its
+  tests.
+- A change spanning four or more production modules triggers an explicit
+  simplification review.
+- A new module must hide substantial complexity or represent a genuinely
+  distinct product concept.
+- A fresh maintainer or focused LLM must be able to reconstruct the end-to-end
+  system in one working session from this file, `CONTEXT.md`, and the main
+  orchestration path.
+
+Crossing a threshold is an alarm, not an automatic rejection. Simplify first;
+if the intrinsic complexity remains, record a short architectural justification.
+Never split code merely to meet a size metric.
+
 ## Product constraints
 
 These are requirements, not suggestions:
 
-- Target Obsidian 1.13.4 or newer on every supported desktop and mobile platform. Do not import Node built-ins or depend on native processes.
+- Target Obsidian 1.13.4 or newer. The core remote harness, vault and
+  configuration capabilities, conversations, and approvals are supported on
+  desktop, iOS, and Android. Do not import Node built-ins or depend on native
+  processes.
 - Bolovan owns its harness. Providers vary behind `ModelAdapter`; Vault behavior varies behind the four-tool adapter. See `docs/adr/0001-native-cross-platform-harness.md`.
-- Supported providers are OpenAI, advanced OpenAI-compatible endpoints, and local Transformers.js WebGPU. Local inference has no CPU/WASM fallback.
+- Supported providers are OpenAI, advanced OpenAI-compatible endpoints, and
+  local Transformers.js WebGPU. Local inference is capability-gated: a device
+  must return a compatible adapter and initialize the model. Explain
+  unavailability clearly and never fall back to CPU/WASM.
 - Runs are user-triggered and single-flight. Completed-response rendering is the portable guarantee; streaming is optional enhancement behavior.
-- Vault access uses only Obsidian `Vault`, `MetadataCache`, `FileManager`, and `Vault.adapter` (read-only, for `.obsidian`) APIs. Stable exposes only `vault_read`, `vault_search`, `vault_list`, and `vault_change`. The plugin's own source under `.obsidian/plugins/bolovan` is readable; every write under `.obsidian` stays refused. See `docs/adr/0002-read-only-self-inspection.md`.
-- Every mutation requires an exact preview and explicit approval. The commit rechecks the source hash; stale approvals write nothing.
+- Vault behavior uses Obsidian `Vault`, `MetadataCache`, and `FileManager` APIs.
+  Hidden configuration capabilities use the mobile-safe `Vault.adapter` only
+  through `Vault.configDir` and explicit path-bounded actions.
+- Every model-initiated change to user-authored content, vault structure, or
+  Obsidian configuration requires an exact preview and explicit approval. The
+  commit rechecks stale state; stale approvals write nothing.
+- Deterministic plugin-owned persistence—settings, device identity, brain
+  manifest, branch metadata, and conversation transcripts—does not require a
+  separate approval. It stays in documented locations, and model output never
+  chooses its destination or operation.
 - The portable brain is a visible configurable vault folder identified by `bolovan-brain.json`. Secrets, provider profiles, caches, device identity, and approval state stay device-local.
 - Conversation files are device-owned branches. Never append to another device's branch and never automatically merge sync conflicts.
-- `web_search`, shell access, raw filesystem access, and external brain folders are outside the stable milestone. Plugin self-modification stays sealed for writes; reading the plugin's own source is allowed.
+- Stop ends Bolovan's processing immediately: late provider responses cannot
+  update the transcript, execute tools, or resume the run. The portable contract
+  does not claim that `requestUrl` terminates the underlying HTTP request.
+- `web_search`, shell access, raw unrestricted filesystem access, and external
+  brain folders are outside the stable milestone. Plugin self-modification stays
+  sealed; reading Bolovan's own source and approved Obsidian customization are
+  explicit configuration capabilities.
 
 ## Change discipline
 
@@ -183,6 +258,10 @@ These are requirements, not suggestions:
 - Prefer one readable orchestration path over event chains and pass-through modules.
 - Add an interface only where it hides meaningful complexity or enables a real second adapter.
 - Keep framework-specific Obsidian code outside core decision logic, but do not create ceremonial layers.
+- Keep full-vault search as a direct scan until a reproducible desktop and
+  mobile benchmark shows it violates the interaction budget. Cap results,
+  remain cancellable, and avoid blocking the interface. Any later index must be
+  disposable and derived entirely from vault state.
 - Update this file when a durable engineering rule changes.
 - Record load-bearing architectural decisions in `docs/adr/`; do not use ADRs for temporary preferences.
 
@@ -191,4 +270,8 @@ These are requirements, not suggestions:
 - Test provider normalization, tool-loop stopping, cancellation, exact approvals, stale-write rejection, and device-branch forking through module interfaces.
 - Transcript semantics live in `src/transcript.ts` and are tested without an Obsidian runtime.
 - Integration tests use synthetic in-memory adapters and never a personal vault, credential, provider account, or downloaded model.
+- Release smoke tests cover the minimum supported Obsidian version, current
+  desktop, iOS, and Android for the core harness. WebGPU tests capability
+  absence, adapter failure, model-download failure, and at least one compatible
+  device without implying universal device support.
 - Tests should survive internal refactors when module interfaces and behavior remain unchanged.
