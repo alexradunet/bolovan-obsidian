@@ -19,7 +19,7 @@ Messages carry note context with them, Copilot-style:
 - **Active note** — the open note is attached automatically. The file icon in the composer toggles this; the context line above the input shows what will travel with the next message.
 - **Wikilink mentions** — type `[[` in the composer to pick more notes from a ranked list, just like linking in a note. Mentions render as Obsidian-style links; clicking one expands it into editable `[[note]]` text, and it collapses again when the caret leaves. The paperclip button opens the same list as a fuzzy search.
 
-Attached notes appear as links on sent messages, and wikilinks in the agent's replies are clickable too — each one opens the note in Obsidian.
+Attached notes appear as links on sent messages, wikilinks in the agent's replies are clickable, and note paths on tool rows (read/write/edit) link to the note too — each one opens it in Obsidian.
 
 Attached notes are inlined into the prompt pi receives, so the agent has their contents without spending a tool call. The transcript shows attachment chips on messages instead of the raw contents.
 

@@ -308,7 +308,26 @@ export class BolovanChatView extends ItemView {
       const status = el.querySelector(".bolovan-tool__status") as HTMLElement | null;
       const label = el.querySelector(".bolovan-tool__label") as HTMLElement | null;
       status?.setText(item.status === "running" ? "…" : item.status === "done" ? "✓" : "✗");
-      label?.setText(item.target ? `${item.name} · ${item.target.slice(0, 80)}` : item.name);
+      if (label) {
+        label.empty();
+        label.createSpan({ text: item.name });
+        if (item.target) {
+          label.createSpan({ text: " · " });
+          const targetText = item.target.slice(0, 80);
+          // A tool target that is an existing note becomes a link that opens
+          // it — created and edited files are one click away.
+          const note = this.resolveNote(item.target);
+          if (note) {
+            label.createEl("a", {
+              cls: "internal-link bolovan-tool__link",
+              text: targetText,
+              attr: { href: "#", "data-href": note.path },
+            });
+          } else {
+            label.createSpan({ text: targetText });
+          }
+        }
+      }
       el.toggleClass("bolovan-tool--done", item.status === "done");
       el.toggleClass("bolovan-tool--error", item.status === "error");
       return;
@@ -515,12 +534,21 @@ export class BolovanChatView extends ItemView {
     if (!href) {
       return;
     }
-    const file = this.app.metadataCache.getFirstLinkpathDest(href, "");
+    const file = this.resolveNote(href);
     if (!file) {
       new Notice(`No note found for [[${href}]]`);
       return;
     }
     void this.openNote(file);
+  }
+
+  /** Resolve a full vault path or a wikilink to an existing note. */
+  private resolveNote(href: string): TFile | undefined {
+    const byPath = this.app.vault.getAbstractFileByPath(href);
+    if (byPath instanceof TFile) {
+      return byPath;
+    }
+    return this.app.metadataCache.getFirstLinkpathDest(href, "") ?? undefined;
   }
 
   /** Open an attached note from the transcript. */
@@ -711,11 +739,17 @@ export class BolovanChatView extends ItemView {
       const stats = await agent.getStats();
       const tokens = stats.tokens?.total ?? 0;
       const cost = stats.cost ?? 0;
-      const context = stats.contextUsage?.percent;
+      const used = stats.contextUsage?.tokens;
+      const contextWindow = stats.contextUsage?.contextWindow;
       const usageDetail = `${formatTokens(tokens)} tokens · $${cost.toFixed(3)}`;
-      this.statsEl.setText(typeof context === "number" ? `${context}% context` : "Context —");
+      // `used` is null right after compaction until the next response.
+      const contextText =
+        typeof used === "number" && typeof contextWindow === "number"
+          ? `${Math.round(used / 1000)}K/${Math.round(contextWindow / 1000)}K`
+          : "Context —";
+      this.statsEl.setText(contextText);
       this.statsEl.setAttr("title", usageDetail);
-      this.statsEl.setAttr("aria-label", `${this.statsEl.textContent}. ${usageDetail}`);
+      this.statsEl.setAttr("aria-label", `${contextText}. ${usageDetail}`);
     } catch {
       this.statsEl.setText("");
     }
