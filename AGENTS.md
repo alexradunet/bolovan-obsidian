@@ -81,11 +81,19 @@ working on the plugin.
   integration checks on every machine.
 - Keep generated output and dependency changes intentional. If dependencies
   change, update and review `package-lock.json` with `package.json`.
+- Review Obsidian's official sources before building any new feature, during
+  code review, and before optimizing: the API type definitions and plugin
+  guidelines at https://github.com/obsidianmd/obsidian-api and the developer
+  documentation at https://docs.obsidian.md. Prefer the documented Obsidian
+  API over a hand-rolled equivalent, and the current API over a deprecated one.
 
 Sources:
 
 - [Cognitive load guidance for agents](https://github.com/zakirullin/cognitive-load/blob/main/README.agents.md)
 - [Cognitive Load Is What Matters](https://github.com/zakirullin/cognitive-load)
+- [Obsidian API type definitions](https://github.com/obsidianmd/obsidian-api/blob/master/obsidian.d.ts)
+- [Obsidian developer documentation](https://docs.obsidian.md/Home)
+- [Plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines)
 
 ## Prime directive
 

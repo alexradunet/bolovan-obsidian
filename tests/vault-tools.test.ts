@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { VaultTools } from "../src/vault-tools";
+import type { App } from "obsidian";
+import { VaultTools, type ChangePreview, type ToolResult } from "../src/vault-tools";
 
-function fakeApp(initial: Record<string, string>): { app: any; files: Map<string, string> } {
+function fakeApp(initial: Record<string, string>, configDir = ".obsidian"): { app: App; files: Map<string, string> } {
   const files = new Map(Object.entries(initial));
   const file = (path: string) => files.has(path) ? { path } : null;
   const vault = {
+    configDir,
     getFileByPath: file,
     getAbstractFileByPath: file,
     getFolderByPath: () => null,
@@ -46,7 +48,24 @@ function fakeApp(initial: Record<string, string>): { app: any; files: Map<string
       },
     },
   };
-  return { app: { vault, fileManager: { renameFile: async () => undefined } }, files };
+  // Structural fake, not a real App: the test seam for vault tools.
+  const app = { vault, fileManager: { renameFile: async () => undefined } } as unknown as App;
+  return { app, files };
+}
+
+/** Direct tool results carry content; previews carry apply(). */
+function contentOf(result: ToolResult | ChangePreview): string {
+  if ("apply" in result) {
+    throw new Error("Expected a direct tool result, got a change preview");
+  }
+  return result.content;
+}
+
+function asChangePreview(result: ToolResult | ChangePreview): ChangePreview {
+  if ("apply" in result) {
+    return result;
+  }
+  throw new Error("Expected a change preview, got a direct tool result");
 }
 
 describe("VaultTools exact changes", () => {
@@ -55,7 +74,7 @@ describe("VaultTools exact changes", () => {
     const tools = new VaultTools(app);
     const read = await tools.execute("vault_read", { path: "Note.md" });
     expect("apply" in read).toBe(false);
-    const hash = JSON.parse((read as any).content).hash;
+    const hash = JSON.parse(contentOf(read)).hash;
 
     const prepared = await tools.execute("vault_change", {
       action: "replace",
@@ -64,8 +83,8 @@ describe("VaultTools exact changes", () => {
       expected_hash: hash,
     });
     expect("apply" in prepared).toBe(true);
-    expect((prepared as any).message).toContain("Resulting full file contents:\n---\nafter\n---");
-    await (prepared as any).apply();
+    expect(asChangePreview(prepared).message).toContain("Resulting full file contents:\n---\nafter\n---");
+    await asChangePreview(prepared).apply();
 
     expect(files.get("Note.md")).toBe("after");
   });
@@ -74,7 +93,7 @@ describe("VaultTools exact changes", () => {
     const { app, files } = fakeApp({ "Note.md": "before" });
     const tools = new VaultTools(app);
     const read = await tools.execute("vault_read", { path: "Note.md" });
-    const hash = JSON.parse((read as any).content).hash;
+    const hash = JSON.parse(contentOf(read)).hash;
     const prepared = await tools.execute("vault_change", {
       action: "replace",
       path: "Note.md",
@@ -83,11 +102,11 @@ describe("VaultTools exact changes", () => {
     });
 
     files.set("Note.md", "changed elsewhere");
-    await expect((prepared as any).apply()).rejects.toThrow("changed after approval");
+    await expect(asChangePreview(prepared).apply()).rejects.toThrow("changed after approval");
     expect(files.get("Note.md")).toBe("changed elsewhere");
   });
 
-  it("refuses stable-channel writes under .obsidian", async () => {
+  it("refuses stable-channel writes under the config directory", async () => {
     const { app } = fakeApp({});
     const tools = new VaultTools(app);
     const result = await tools.execute("vault_change", {
@@ -96,8 +115,8 @@ describe("VaultTools exact changes", () => {
       content: "unsafe",
     });
 
-    expect(result).toMatchObject({ isError: true });
-    expect((result as any).content).toContain("does not modify Obsidian configuration or plugin code");
+    expect("apply" in result).toBe(false);
+    expect(contentOf(result)).toContain("does not modify Obsidian configuration or plugin code");
   });
 
   it("reads and lists the plugin's own source through the adapter", async () => {
@@ -105,14 +124,14 @@ describe("VaultTools exact changes", () => {
     const tools = new VaultTools(app);
 
     const read = await tools.execute("vault_read", { path: ".obsidian/plugins/bolovan/src/vault-tools.ts" });
-    const payload = JSON.parse((read as { content: string }).content);
+    const payload = JSON.parse(contentOf(read));
     expect(payload).toMatchObject({
       path: ".obsidian/plugins/bolovan/src/vault-tools.ts",
       content: "source code",
     });
 
     const listed = await tools.execute("vault_list", { path: ".obsidian/plugins/bolovan/src" });
-    const entries = JSON.parse((listed as { content: string }).content).entries;
+    const entries = JSON.parse(contentOf(listed)).entries;
     expect(entries).toContainEqual({
       path: ".obsidian/plugins/bolovan/src/vault-tools.ts",
       type: "file",
@@ -120,7 +139,38 @@ describe("VaultTools exact changes", () => {
 
     files.delete(".obsidian/plugins/bolovan/src/vault-tools.ts");
     const missing = await tools.execute("vault_read", { path: ".obsidian/plugins/bolovan/src/vault-tools.ts" });
-    expect(missing).toMatchObject({ isError: true });
-    expect((missing as { content: string }).content).toContain("File not found");
+    expect(contentOf(missing)).toContain("File not found");
+  });
+
+  it("follows a renamed config directory instead of assuming .obsidian", async () => {
+    const { app } = fakeApp({ ".config/plugins/bolovan/main.js": "source" }, ".config");
+    const tools = new VaultTools(app);
+
+    const read = await tools.execute("vault_read", { path: ".config/plugins/bolovan/main.js" });
+    expect(JSON.parse(contentOf(read)).content).toBe("source");
+
+    const blocked = await tools.execute("vault_change", {
+      action: "create",
+      path: ".config/evil.md",
+      content: "unsafe",
+    });
+    expect("apply" in blocked).toBe(false);
+    expect(contentOf(blocked)).toContain("does not modify Obsidian configuration");
+  });
+
+  it("refuses to move a note into the config directory", async () => {
+    const { app } = fakeApp({ "Note.md": "before" });
+    const tools = new VaultTools(app);
+    const read = await tools.execute("vault_read", { path: "Note.md" });
+    const hash = JSON.parse(contentOf(read)).hash;
+
+    const blocked = await tools.execute("vault_change", {
+      action: "move",
+      path: "Note.md",
+      destination: ".obsidian/plugins/bolovan/copied.md",
+      expected_hash: hash,
+    });
+    expect("apply" in blocked).toBe(false);
+    expect(contentOf(blocked)).toContain("does not modify Obsidian configuration");
   });
 });

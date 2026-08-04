@@ -66,9 +66,9 @@ export class VaultTools {
 
   private async read(rawPath: string): Promise<ToolResult> {
     const path = safePath(rawPath);
-    // Obsidian's Vault API never exposes .obsidian; reads there use the
-    // adapter directly. Writes stay sealed: only vault_change is refused.
-    if (path.startsWith(".obsidian")) {
+    // Obsidian's Vault API never exposes the config directory; reads there
+    // use the adapter directly. Writes stay sealed: vault_change refuses them.
+    if (this.isConfigPath(path)) {
       const adapter = this.app.vault.adapter;
       if (!(await adapter.exists(path))) {
         return { content: `File not found: ${path}`, isError: true };
@@ -108,8 +108,9 @@ export class VaultTools {
 
   private async list(rawPath: string): Promise<ToolResult> {
     const path = rawPath ? safePath(rawPath) : "";
-    // Same exception as vault_read: Obsidian's Vault API hides .obsidian.
-    if (path.startsWith(".obsidian")) {
+    // Same exception as vault_read: Obsidian's Vault API hides the config
+    // directory.
+    if (this.isConfigPath(path)) {
       const adapter = this.app.vault.adapter;
       if (!(await adapter.exists(path))) {
         return { content: `Folder not found: ${path}`, isError: true };
@@ -138,7 +139,7 @@ export class VaultTools {
       throw new Error(`Unsupported vault_change action: ${action}`);
     }
     const path = safePath(requireString(args, "path"));
-    if (path === ".obsidian" || path.startsWith(".obsidian/")) {
+    if (this.isConfigPath(path)) {
       throw new Error("Bolovan stable does not modify Obsidian configuration or plugin code");
     }
 
@@ -194,6 +195,9 @@ export class VaultTools {
 
     if (action === "move") {
       const destination = safePath(requireString(args, "destination"));
+      if (this.isConfigPath(destination)) {
+        throw new Error("Bolovan stable does not modify Obsidian configuration or plugin code");
+      }
       if (this.app.vault.getAbstractFileByPath(destination)) {
         throw new Error(`A vault item already exists at ${destination}`);
       }
@@ -220,6 +224,12 @@ export class VaultTools {
         return { content: JSON.stringify({ action, path, destination: archivePath }) };
       },
     };
+  }
+
+  /** True for the vault's hidden config directory, whatever it is named. */
+  private isConfigPath(path: string): boolean {
+    const configDir = this.app.vault.configDir;
+    return path === configDir || path.startsWith(`${configDir}/`);
   }
 
   private async ensureParent(path: string): Promise<void> {
@@ -277,8 +287,9 @@ function safePath(value: string): string {
   return normalized;
 }
 
-// .obsidian paths bypass the traversal checks: vault_read and vault_list may
-// reach them, but vault_change refuses them before any preview or write.
+// Config-directory paths bypass the traversal checks: vault_read and
+// vault_list may reach them, but vault_change refuses them before any
+// preview or write.
 function rawPath(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error("path must be a non-empty string");

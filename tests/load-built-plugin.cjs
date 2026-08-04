@@ -11,18 +11,12 @@ Module._load = function loadWithObsidianStub(request, parent, isMain) {
       Notice: class Notice {},
       Plugin: class Plugin {},
       PluginSettingTab: class PluginSettingTab {},
-      Setting: class Setting {},
       TFile: class TFile {},
-      FileSystemAdapter: class FileSystemAdapter {},
       ItemView: class ItemView {},
       FuzzySuggestModal: class FuzzySuggestModal {},
       Modal: class Modal {
         open() {}
         close() {}
-      },
-      Component: class Component {
-        load() {}
-        unload() {}
       },
       setIcon: () => undefined,
       MarkdownRenderer: { render: async () => undefined },

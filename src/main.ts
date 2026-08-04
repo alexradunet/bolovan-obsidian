@@ -6,7 +6,7 @@ import {
   Plugin,
   PluginSettingTab,
   requestUrl,
-  Setting,
+  type SettingDefinitionItem,
   TFile,
 } from "obsidian";
 import { BOLOVAN_CHAT_VIEW, BolovanChatView } from "./chat-view";
@@ -258,7 +258,8 @@ export default class BolovanPlugin extends Plugin {
 
   private async toggleChatView(): Promise<void> {
     const existingLeaf = this.app.workspace.getLeavesOfType(BOLOVAN_CHAT_VIEW)[0];
-    if (existingLeaf && this.app.workspace.activeLeaf === existingLeaf) {
+    const chatIsActive = this.app.workspace.getActiveViewOfType(BolovanChatView) !== null;
+    if (existingLeaf && chatIsActive) {
       existingLeaf.detach();
       return;
     }
@@ -295,124 +296,152 @@ class BolovanSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  display(): void {
-    this.containerEl.empty();
-    this.containerEl.createEl("h2", { text: "Bolovan" });
+  getControlValue(key: string): unknown {
+    return this.plugin.config[key as keyof BolovanSettings];
+  }
 
-    new Setting(this.containerEl)
-      .setName("Provider")
-      .setDesc("OpenAI works immediately with an API key. Compatible endpoints are advanced. Local uses WebGPU only.")
-      .addDropdown((dropdown) => dropdown
-        .addOption("openai", "OpenAI")
-        .addOption("openai-compatible", "OpenAI-compatible")
-        .addOption("webgpu", "Local WebGPU")
-        .setValue(this.plugin.config.providerKind)
-        .onChange(async (value) => {
-          await this.plugin.setProviderKind(value as ProviderKind);
-          this.display();
-        }));
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    if (typeof value !== "string") {
+      return;
+    }
+    // Every setter owns its validation and persistence; the tab only routes.
+    switch (key) {
+      case "providerKind":
+        await this.plugin.setProviderKind(value as ProviderKind);
+        this.update();
+        return;
+      case "model":
+        await this.plugin.setModel(value);
+        return;
+      case "thinkingEffort":
+        await this.plugin.setThinkingEffort(value as ThinkingEffort);
+        return;
+      case "baseUrl":
+        await this.plugin.setBaseUrl(value);
+        return;
+      case "brainFolder":
+        await this.plugin.setBrainFolder(value);
+        return;
+    }
+  }
 
-    if (this.plugin.config.providerKind !== "webgpu") {
-      new Setting(this.containerEl)
-        .setName("API key")
-        .setDesc("Stored in Obsidian SecretStorage on this device; never written into the vault or synced.")
-        .addText((text) => {
-          text.inputEl.type = "password";
-          text.setPlaceholder(this.plugin.hasApiKey() ? "Configured — enter to replace" : "sk-…");
-          text.onChange((value) => {
-            if (value.trim()) {
-              this.plugin.setApiKey(value);
-            }
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    const kind = this.plugin.config.providerKind;
+    return [
+      {
+        name: "Provider",
+        desc: "OpenAI works immediately with an API key. Compatible endpoints are advanced. Local uses WebGPU only.",
+        control: {
+          type: "dropdown",
+          key: "providerKind",
+          options: {
+            openai: "OpenAI",
+            "openai-compatible": "OpenAI-compatible",
+            webgpu: "Local WebGPU",
+          },
+        },
+      },
+      {
+        name: "API key",
+        desc: "Stored in Obsidian SecretStorage on this device; never written into the vault or synced.",
+        visible: () => this.plugin.config.providerKind !== "webgpu",
+        render: (setting) => {
+          setting.addText((text) => {
+            text.inputEl.type = "password";
+            text.setPlaceholder(this.plugin.hasApiKey() ? "Configured — enter to replace" : "sk-…");
+            text.onChange((value) => {
+              if (value.trim()) {
+                this.plugin.setApiKey(value);
+              }
+            });
           });
-        })
-        .addExtraButton((button) => button
-          .setIcon("trash")
-          .setTooltip("Clear the saved API key")
-          .onClick(() => {
-            this.plugin.setApiKey("");
-            this.display();
-          }));
-    }
-
-    if (this.plugin.config.providerKind === "openai-compatible") {
-      new Setting(this.containerEl)
-        .setName("Base URL")
-        .setDesc("The endpoint root ending in /v1. It must implement OpenAI Chat Completions and function tools.")
-        .addText((text) => text
-          .setPlaceholder("https://example.test/v1")
-          .setValue(this.plugin.config.baseUrl)
-          .onChange((value) => void this.plugin.setBaseUrl(value)));
-    }
-
-    const modelSetting = new Setting(this.containerEl)
-      .setName("Model")
-      .setDesc(this.plugin.config.providerKind === "webgpu"
-        ? "Curated WebGPU model. The first run downloads model weights into the browser cache. No CPU fallback."
-        : this.plugin.config.providerKind === "openai"
-          ? "Choose the active OpenAI model. Terra is the balanced default."
-          : "Model ID exposed by your OpenAI-compatible server.");
-    if (this.plugin.config.providerKind === "openai-compatible") {
-      modelSetting.addText((text) => text
-        .setPlaceholder("model-name")
-        .setValue(this.plugin.config.model)
-        .onChange((value) => void this.plugin.setModel(value)));
-    } else {
-      const choices = this.plugin.config.providerKind === "webgpu"
-        ? [LOCAL_WEBGPU_MODEL]
-        : [...OPENAI_MODELS];
-      modelSetting.addDropdown((dropdown) => {
-        for (const choice of choices) {
-          dropdown.addOption(choice.id, choice.name);
-        }
-        if (!choices.some((choice) => choice.id === this.plugin.config.model)) {
-          dropdown.addOption(this.plugin.config.model, `${this.plugin.config.model} — saved model`);
-        }
-        return dropdown
-          .setValue(this.plugin.config.model)
-          .onChange((value) => void this.plugin.setModel(value));
-      });
-    }
-
-    const thinkingSetting = new Setting(this.containerEl)
-      .setName("Thinking effort")
-      .setDesc(this.plugin.config.providerKind === "webgpu"
-        ? "The current local WebGPU model does not expose configurable thinking effort."
-        : this.plugin.config.providerKind === "openai"
-          ? "Controls reasoning depth. Higher levels can improve difficult work but increase latency and token use."
-          : "Sent as reasoning_effort when enabled. Choose None if your endpoint does not support it.");
-    thinkingSetting.addDropdown((dropdown) => {
-      const levels = this.plugin.config.providerKind === "webgpu"
-        ? THINKING_LEVELS.filter((level) => level.id === "none")
-        : THINKING_LEVELS;
-      for (const level of levels) {
-        dropdown.addOption(level.id, level.name);
-      }
-      return dropdown
-        .setValue(this.plugin.config.providerKind === "webgpu" ? "none" : this.plugin.config.thinkingEffort)
-        .setDisabled(this.plugin.config.providerKind === "webgpu")
-        .onChange((value) => void this.plugin.setThinkingEffort(value as ThinkingEffort));
-    });
-
-    if (this.plugin.config.providerKind === "webgpu") {
-      new Setting(this.containerEl)
-        .setName("WebGPU status")
-        .setDesc(webGpuDescription())
-        .setDisabled(true);
-    }
-
-    new Setting(this.containerEl)
-      .setName("AI brain folder")
-      .setDesc("Visible folder inside the vault containing portable instructions, skills, prompts, and conversation branches.")
-      .addText((text) => text
-        .setValue(this.plugin.config.brainFolder)
-        .setPlaceholder("system/Bolovan")
-        .onChange(async (value) => {
-          try {
-            await this.plugin.setBrainFolder(value);
-          } catch (error) {
-            new Notice(describeError(error));
+          setting.addExtraButton((button) => button
+            .setIcon("trash")
+            .setTooltip("Clear the saved API key")
+            .onClick(() => {
+              this.plugin.setApiKey("");
+              this.update();
+            }));
+        },
+      },
+      {
+        name: "Base URL",
+        desc: "The endpoint root ending in /v1. It must implement OpenAI Chat Completions and function tools.",
+        visible: () => this.plugin.config.providerKind === "openai-compatible",
+        control: {
+          type: "text",
+          key: "baseUrl",
+          placeholder: "https://example.test/v1",
+        },
+      },
+      {
+        name: "Model",
+        desc: modelDescription(kind),
+        control: kind === "openai-compatible"
+          ? { type: "text" as const, key: "model", placeholder: "model-name" }
+          : { type: "dropdown" as const, key: "model", options: modelOptions(kind, this.plugin.config.model) },
+      },
+      kind === "webgpu"
+        ? {
+            name: "Thinking effort",
+            desc: "The current local WebGPU model does not expose configurable thinking effort.",
           }
-        }));
+        : {
+            name: "Thinking effort",
+            desc: kind === "openai"
+              ? "Controls reasoning depth. Higher levels can improve difficult work but increase latency and token use."
+              : "Sent as reasoning_effort when enabled. Choose None if your endpoint does not support it.",
+            control: {
+              type: "dropdown" as const,
+              key: "thinkingEffort",
+              options: Object.fromEntries(THINKING_LEVELS.map((level) => [level.id, level.name])),
+            },
+          },
+      {
+        name: "WebGPU status",
+        desc: webGpuDescription(),
+        visible: () => this.plugin.config.providerKind === "webgpu",
+      },
+      {
+        name: "AI brain folder",
+        desc: "Visible folder inside the vault containing portable instructions, skills, prompts, and conversation branches.",
+        control: {
+          type: "text",
+          key: "brainFolder",
+          placeholder: "system/Bolovan",
+          validate: validBrainFolder,
+        },
+      },
+    ];
+  }
+}
+
+function modelDescription(kind: ProviderKind): string {
+  if (kind === "webgpu") {
+    return "Curated WebGPU model. The first run downloads model weights into the browser cache. No CPU fallback.";
+  }
+  if (kind === "openai") {
+    return "Choose the active OpenAI model. Terra is the balanced default.";
+  }
+  return "Model ID exposed by your OpenAI-compatible server.";
+}
+
+function modelOptions(kind: ProviderKind, savedModel: string): Record<string, string> {
+  const choices = kind === "webgpu" ? [LOCAL_WEBGPU_MODEL] : [...OPENAI_MODELS];
+  const options: Record<string, string> = Object.fromEntries(
+    choices.map((choice) => [choice.id, choice.name] as [string, string]),
+  );
+  if (!options[savedModel]) {
+    options[savedModel] = `${savedModel} — saved model`;
+  }
+  return options;
+}
+
+/** Inline mirror of setBrainFolder's validation; the setter stays authoritative. */
+function validBrainFolder(folder: string): string | void {
+  const value = folder.trim().replace(/^\/+|\/+$/g, "");
+  if (!value || value.startsWith(".") || value.includes("..")) {
+    return "Choose a visible folder inside the vault";
   }
 }
 

@@ -1,4 +1,4 @@
-import { App, Component, FuzzySuggestModal, ItemView, MarkdownRenderer, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
+import { App, FuzzySuggestModal, ItemView, MarkdownRenderer, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import type BolovanPlugin from "./main";
 import type { BolovanEvent, BolovanUiRequest } from "./bolovan-agent";
 import { Composer } from "./composer";
@@ -23,7 +23,6 @@ const THINKING_MARKDOWN = "*Thinking…*";
  * but DOM concerns — throttling, scrolling, and dialogs.
  */
 export class BolovanChatView extends ItemView {
-  private readonly component = new Component();
   private readonly transcript = new Transcript();
   private readonly itemEls = new Map<string, HTMLElement>();
   private readonly assistantPaintScheduled = new Set<string>();
@@ -65,7 +64,6 @@ export class BolovanChatView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
-    this.component.load();
     this.buildLayout();
     this.unsubscribeTranscript = this.transcript.subscribe((item) =>
       this.onTranscriptChange(item),
@@ -102,7 +100,6 @@ export class BolovanChatView extends ItemView {
     this.unsubscribeAgent = undefined;
     this.unsubscribeTranscript?.();
     this.unsubscribeTranscript = undefined;
-    this.component.unload();
     this.plugin.stopAgent();
   }
 
@@ -286,7 +283,7 @@ export class BolovanChatView extends ItemView {
       if (silent) {
         return;
       }
-      void MarkdownRenderer.render(this.app, item.markdown || THINKING_MARKDOWN, el, "", this.component)
+      void MarkdownRenderer.render(this.app, item.markdown || THINKING_MARKDOWN, el, "", this)
         .then(() => this.scrollToBottom(false));
       return;
     }
@@ -355,7 +352,7 @@ export class BolovanChatView extends ItemView {
       }
       el.empty();
       el.addClass("is-streaming");
-      void MarkdownRenderer.render(this.app, item.markdown || THINKING_MARKDOWN, el, "", this.component)
+      void MarkdownRenderer.render(this.app, item.markdown || THINKING_MARKDOWN, el, "", this)
         .then(() => this.scrollToBottom(false));
     }, RENDER_THROTTLE_MS);
   }
@@ -531,17 +528,17 @@ export class BolovanChatView extends ItemView {
 
   /** Resolve a full vault path or a wikilink to an existing note. */
   private resolveNote(href: string): TFile | undefined {
-    const byPath = this.app.vault.getAbstractFileByPath(href);
-    if (byPath instanceof TFile) {
-      return byPath;
-    }
-    return this.app.metadataCache.getFirstLinkpathDest(href, "") ?? undefined;
+    return (
+      this.app.vault.getFileByPath(href)
+      ?? this.app.metadataCache.getFirstLinkpathDest(href, "")
+      ?? undefined
+    );
   }
 
   /** Open an attached note from the transcript. */
   private async openAttachment(path: string): Promise<void> {
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) {
+    const file = this.app.vault.getFileByPath(path);
+    if (!file) {
       new Notice(`This note no longer exists: ${path}`);
       return;
     }
@@ -551,10 +548,12 @@ export class BolovanChatView extends ItemView {
   /** Open a note without ever replacing the chat surface itself. */
   private async openNote(file: TFile): Promise<void> {
     try {
-      const leaf =
-        this.app.workspace.activeLeaf === this.leaf
-          ? this.app.workspace.getLeaf("tab")
-          : this.app.workspace.getLeaf(false);
+      // The most recent root-split leaf is the note surface; a new tab is
+      // the fallback when none exists or it is the chat leaf itself.
+      const recent = this.app.workspace.getMostRecentLeaf();
+      const leaf = recent && recent !== this.leaf
+        ? recent
+        : this.app.workspace.getLeaf("tab");
       await leaf.openFile(file);
     } catch (error) {
       new Notice(`Could not open ${file.path}: ${describeError(error)}`);

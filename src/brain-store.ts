@@ -187,7 +187,8 @@ export class BrainStore {
       await this.createBranchFile(this.activePath, branch);
       return;
     }
-    await this.app.vault.modify(file, `${JSON.stringify(branch, null, 2)}\n`);
+    // process() keeps the write atomic against sync and other writers.
+    await this.app.vault.process(file, () => `${JSON.stringify(branch, null, 2)}\n`);
   }
 
   private async createBranchFile(path: string, branch: ConversationBranch): Promise<void> {

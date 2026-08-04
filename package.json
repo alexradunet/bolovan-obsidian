@@ -16,7 +16,7 @@
     "@huggingface/transformers": "4.2.0",
     "@types/node": "22.15.17",
     "esbuild": "0.25.5",
-    "obsidian": "latest",
+    "obsidian": "1.13.1",
     "onnxruntime-web": "1.26.0-dev.20260416-b7804b056c",
     "typescript": "5.9.3",
     "vitest": "3.2.7"
