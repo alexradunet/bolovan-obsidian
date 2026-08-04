@@ -67,26 +67,26 @@ describe("splitAttachedNotes", () => {
 });
 
 describe("parseMentionLinkpaths", () => {
-  it("extracts a plain mention", () => {
-    expect(parseMentionLinkpaths("See @[[Today]] please")).toEqual(["Today"]);
+  it("extracts a plain wikilink", () => {
+    expect(parseMentionLinkpaths("See [[Today]] please")).toEqual(["Today"]);
   });
 
   it("keeps folders, strips headings and aliases", () => {
-    expect(parseMentionLinkpaths("@[[01-Journal/Today#Morning|alias]]")).toEqual([
+    expect(parseMentionLinkpaths("[[01-Journal/Today#Morning|alias]]")).toEqual([
       "01-Journal/Today",
     ]);
   });
 
   it("collects several mentions in order", () => {
-    expect(parseMentionLinkpaths("@[[One]] and @[[Two]] and @[[Three]]")).toEqual([
+    expect(parseMentionLinkpaths("[[One]] and [[Two]] and [[Three]]")).toEqual([
       "One",
       "Two",
       "Three",
     ]);
   });
 
-  it("ignores links without the @ marker", () => {
-    expect(parseMentionLinkpaths("plain [[Link]] and email@site.com")).toEqual([]);
+  it("ignores unclosed links and plain text", () => {
+    expect(parseMentionLinkpaths("[[Unclosed and email@site.com")).toEqual([]);
   });
 });
 
@@ -119,24 +119,29 @@ describe("matchNoteCandidates", () => {
 });
 
 describe("mentionTokenAt", () => {
-  it("finds the token starting at the last @ before the caret", () => {
-    expect(mentionTokenAt("see @jou", 8)).toEqual({ start: 4, end: 8, query: "jou" });
+  it("finds the token starting at the last [[ before the caret", () => {
+    expect(mentionTokenAt("see [[jou", 9)).toEqual({ start: 4, end: 9, query: "jou" });
   });
 
-  it("accepts an empty query right after @", () => {
-    expect(mentionTokenAt("@", 1)).toEqual({ start: 0, end: 1, query: "" });
+  it("accepts an empty query right after [[", () => {
+    expect(mentionTokenAt("[[", 2)).toEqual({ start: 0, end: 2, query: "" });
   });
 
-  it("requires @ to start at a token boundary", () => {
-    expect(mentionTokenAt("email@site", 10)).toBeUndefined();
+  it("requires [[ to start at a token boundary", () => {
+    expect(mentionTokenAt("see[[x", 6)).toBeUndefined();
   });
 
-  it("ignores completed mentions with brackets", () => {
-    expect(mentionTokenAt("@[[Note]] ", 10)).toBeUndefined();
+  it("ignores completed links", () => {
+    expect(mentionTokenAt("[[Note]] ", 9)).toBeUndefined();
+  });
+
+  it("stops once an alias or heading starts", () => {
+    expect(mentionTokenAt("[[Note|al", 9)).toBeUndefined();
+    expect(mentionTokenAt("[[Note#he", 9)).toBeUndefined();
   });
 
   it("stops at newlines", () => {
-    expect(mentionTokenAt("@a\nb", 4)).toBeUndefined();
+    expect(mentionTokenAt("[[a\nb", 5)).toBeUndefined();
   });
 });
 

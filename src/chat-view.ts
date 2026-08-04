@@ -160,7 +160,7 @@ export class BolovanChatView extends ItemView {
     const controls = composer.createDiv({ cls: "bolovan-chat__controls" });
     const attachNoteButtonEl = controls.createEl("button", {
       cls: "clickable-icon bolovan-chat__pick-note",
-      attr: { "aria-label": "Attach note", title: "Attach note (@)" },
+      attr: { "aria-label": "Attach note", title: "Attach note ([[)" },
     });
     setIcon(attachNoteButtonEl, "paperclip");
     attachNoteButtonEl.addEventListener("click", () => {
@@ -417,7 +417,7 @@ export class BolovanChatView extends ItemView {
 
   /**
    * Gather the note contents attached to an outgoing message: the active
-   * note (when enabled) plus every resolvable @[[mention]] in the text.
+   * note (when enabled) plus every resolvable [[mention]] in the text.
    * Unresolvable mentions are reported but never block the send.
    */
   private async collectAttachedNotes(
@@ -454,7 +454,7 @@ export class BolovanChatView extends ItemView {
     for (const linkpath of parseMentionLinkpaths(text)) {
       const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, "");
       if (!file) {
-        warnings.push(`No note found for @[[${linkpath}]] — sent without it.`);
+        warnings.push(`No note found for [[${linkpath}]] — sent without it.`);
         continue;
       }
       await attach(file);
@@ -499,7 +499,7 @@ export class BolovanChatView extends ItemView {
     }
     this.contextRowEl.createSpan({
       cls: "bolovan-chat__context-hint",
-      text: including ? "· type @ to attach more notes" : "type @ to attach notes",
+      text: including ? "· type [[ to attach more notes" : "type [[ to attach notes",
     });
   }
 

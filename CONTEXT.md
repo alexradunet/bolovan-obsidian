@@ -29,5 +29,5 @@ these are the domain nouns.
 - **Attachment** — a vault note whose contents are inlined into an outgoing
   prompt. The open note attaches automatically (toggleable); more come from
   mentions.
-- **Mention** — an `@[[note]]` marker typed in the composer; resolved to a
+- **Mention** — a `[[note]]` wikilink typed in the composer; resolved to a
   note and turned into an attachment at send time.

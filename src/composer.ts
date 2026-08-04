@@ -22,10 +22,10 @@ export interface ComposerOptions {
 
 /**
  * The chat input: a contenteditable line where note mentions live as chips.
- * Chips serialize back to `@[[label]]`, so the outgoing prompt is the same
- * plain text the old textarea produced and nothing downstream changes.
- * Clicking a chip unwraps it into editable text; once the caret leaves a
- * completed mention it becomes a chip again.
+ * Chips serialize back to `[[label]]` wikilinks, so the outgoing prompt is
+ * plain text and nothing downstream changes. Clicking a chip unwraps it
+ * into editable text; once the caret leaves a completed mention it becomes
+ * a chip again.
  */
 export class Composer {
   readonly el: HTMLDivElement;
@@ -60,7 +60,7 @@ export class Composer {
     this.picker = new MentionPicker(this, options.pickerHost, options.getNotes);
   }
 
-  /** Plain text of the message; chips appear as their @[[label]] form. */
+  /** Plain text of the message; chips appear as their [[label]] form. */
   getText(): string {
     return extractText(this.el);
   }
@@ -184,7 +184,7 @@ export class Composer {
   /** Clicking a chip unwraps it so its label can be edited as plain text. */
   private unwrapChip(chip: HTMLElement): void {
     const label = chip.dataset.label ?? chip.textContent ?? "";
-    const textNode = this.el.ownerDocument.createTextNode(`@[[${label}]]`);
+    const textNode = this.el.ownerDocument.createTextNode(`[[${label}]]`);
     chip.replaceWith(textNode);
     const range = this.el.ownerDocument.createRange();
     range.setStart(textNode, textNode.nodeValue?.length ?? 0);
@@ -194,9 +194,10 @@ export class Composer {
   }
 
   /**
-   * Turn completed @[[mention]] text into chips. Chips are skipped
-   * structurally (they are not text nodes) and the token holding the caret
-   * stays editable.
+   * Turn completed [[mention]] text into chips, keeping the full inner
+   * label (heading and alias included). Chips are skipped structurally
+   * (they are not text nodes) and the token holding the caret stays
+   * editable.
    */
   private decorate(): void {
     if (this.composing) {
@@ -219,7 +220,9 @@ export class Composer {
               node: node as Text,
               start: match.index ?? 0,
               end: (match.index ?? 0) + match[0].length,
-              label: match[1] ?? "",
+              // The inner label, heading and alias included, so unwrapping
+              // restores exactly what the user typed.
+              label: match[0].slice(2, -2),
             });
           }
         }
@@ -255,7 +258,7 @@ export class Composer {
     chip.className = CHIP_CLASS;
     chip.setAttribute("contenteditable", "false");
     chip.dataset.label = label;
-    chip.textContent = label.split("/").pop() ?? label;
+    chip.textContent = chipDisplay(label);
     chip.title = label;
     return chip;
   }
@@ -493,7 +496,17 @@ function isChipElement(node: Node): node is HTMLElement {
 }
 
 function chipSerialized(chip: HTMLElement): string {
-  return `@[[${chip.dataset.label ?? chip.textContent ?? ""}]]`;
+  return `[[${chip.dataset.label ?? chip.textContent ?? ""}]]`;
+}
+
+/** Alias when present, otherwise the basename of the linked path. */
+function chipDisplay(label: string): string {
+  const alias = label.split("|")[1]?.trim();
+  if (alias) {
+    return alias;
+  }
+  const pathPart = label.split("|")[0]?.split("#")[0] ?? label;
+  return pathPart.split("/").pop() || label;
 }
 
 /** Plain-text form of any DOM fragment: text nodes, chips, and newlines. */
