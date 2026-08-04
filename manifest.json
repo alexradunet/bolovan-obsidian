@@ -3,7 +3,7 @@
   "name": "Nazar",
   "version": "0.1.0",
   "minAppVersion": "1.8.0",
-  "description": "Run local, scoped agents against your Obsidian vault.",
+  "description": "Run pi against your Obsidian vault from inside Obsidian.",
   "author": "Alex Radunet",
   "authorUrl": "https://github.com/alexradunet",
   "isDesktopOnly": true

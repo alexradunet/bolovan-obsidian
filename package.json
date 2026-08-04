@@ -1,7 +1,7 @@
 {
   "name": "nazar-obsidian-plugin",
   "version": "0.1.0",
-  "description": "A local, agentic companion for an Obsidian vault.",
+  "description": "Run pi against your Obsidian vault from inside Obsidian.",
   "type": "module",
   "private": true,
   "main": "main.js",
@@ -11,11 +11,6 @@
   },
   "engines": {
     "node": ">=22.19.0"
-  },
-  "dependencies": {
-    "@earendil-works/pi-ai": "0.83.0",
-    "@earendil-works/pi-coding-agent": "0.83.0",
-    "typebox": "1.1.38"
   },
   "devDependencies": {
     "@types/node": "22.15.17",

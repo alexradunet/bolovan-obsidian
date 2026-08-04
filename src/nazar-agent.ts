@@ -1,23 +1,22 @@
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  defineTool,
-  type AgentSession,
-  type AgentSessionEvent,
-  ModelRuntime,
-  SessionManager,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync } from "node:fs";
+import { createJsonlReader } from "./jsonl";
 
-const PROVIDER_ID = "nazar-local";
-const TOOL_NAME = "vault_read";
+const HANDSHAKE_TIMEOUT_MS = 10_000;
+const ABORT_KILL_TIMEOUT_MS = 5_000;
+const SESSION_NAME = "nazar";
 
 export interface NazarAgentOptions {
-  baseUrl: string;
-  modelId: string;
-  readNote(path: string): Promise<string>;
+  /** Vault root; the spawned pi process runs with this cwd. */
+  cwd: string;
+  /** Absolute path to the pi binary; falls back to PATH lookup. */
+  piPath?: string;
+  /** Session file tracked from a previous run; absent means a fresh session. */
+  sessionFile?: string;
+  /** Extra environment variables, merged over the inherited environment. */
+  env?: Record<string, string>;
+  /** Called whenever the resolved session file path changes. */
+  onSessionFile?(sessionFile: string): void;
 }
 
 export type NazarEvent =
@@ -26,162 +25,316 @@ export type NazarEvent =
   | { type: "tool-end"; name: string; isError: boolean };
 
 export interface NazarAgentStatus {
-  modelId: string;
-  activeTools: string[];
   isRunning: boolean;
+  sessionFile: string | undefined;
+}
+
+interface PendingCommand {
+  resolve(response: RpcResponse): void;
+  reject(error: Error): void;
+}
+
+interface RpcResponse {
+  type: "response";
+  id?: string;
+  command?: string;
+  success: boolean;
+  data?: any;
+  error?: string;
 }
 
 export class NazarAgent {
-  private constructor(private readonly session: AgentSession) {}
+  private child: ChildProcessWithoutNullStreams | undefined;
+  private stderrTail = "";
+  private pending = new Map<string, PendingCommand>();
+  private running = false;
+  private sessionFile: string | undefined;
 
-  static async create(options: NazarAgentOptions): Promise<NazarAgent> {
-    const modelRuntime = await createModelRuntime(options);
-    const model = modelRuntime.getModel(PROVIDER_ID, options.modelId);
-    if (!model) {
-      throw new Error(`Local model was not registered: ${options.modelId}`);
-    }
+  private constructor(private readonly options: NazarAgentOptions) {
+    const tracked = options.sessionFile;
+    this.sessionFile = tracked && existsSync(tracked) ? tracked : undefined;
+  }
 
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: process.cwd(),
-      agentDir: process.cwd(),
-      noExtensions: true,
-      noSkills: true,
-      noPromptTemplates: true,
-      noThemes: true,
-      noContextFiles: true,
-      systemPrompt: [
-        "You are Nazar, a local Obsidian vault assistant.",
-        "Use vault_read when note contents are needed.",
-        "Never claim to have read a note unless the tool returned it.",
-      ].join("\n"),
-    });
-    await resourceLoader.reload();
-
-    const vaultReadTool = defineTool({
-      name: TOOL_NAME,
-      label: "Read note",
-      description: "Read one visible Markdown note from the Obsidian vault by path.",
-      promptSnippet: "Read a visible Markdown note by vault-relative path.",
-      parameters: Type.Object({
-        path: Type.String({ description: "Vault-relative Markdown path" }),
-      }),
-      execute: async (_toolCallId, params) => {
-        try {
-          const content = await options.readNote(params.path);
-          return {
-            content: [{ type: "text", text: content }],
-            details: { path: params.path },
-          };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          return {
-            content: [{ type: "text", text: `Unable to read ${params.path}: ${message}` }],
-            details: { path: params.path },
-            isError: true,
-          };
-        }
-      },
-    });
-
-    const { session } = await createAgentSession({
-      model,
-      modelRuntime,
-      thinkingLevel: "off",
-      tools: [TOOL_NAME],
-      customTools: [vaultReadTool],
-      resourceLoader,
-      sessionManager: SessionManager.inMemory(),
-      settingsManager: SettingsManager.inMemory({
-        retry: { enabled: false },
-        compaction: { enabled: false },
-      }),
-    });
-
-    return new NazarAgent(session);
+  static create(options: NazarAgentOptions): NazarAgent {
+    return new NazarAgent(options);
   }
 
   status(): NazarAgentStatus {
-    return {
-      modelId: this.session.model?.id ?? "unavailable",
-      activeTools: this.session.getActiveToolNames(),
-      isRunning: this.session.isStreaming,
-    };
+    return { isRunning: this.running, sessionFile: this.sessionFile };
+  }
+
+  /** Drop the tracked session lineage; the next run starts a fresh session. */
+  resetSession(): void {
+    this.sessionFile = undefined;
+    this.options.onSessionFile?.("");
   }
 
   async ask(prompt: string, onEvent: (event: NazarEvent) => void): Promise<void> {
-    if (this.session.isStreaming) {
+    if (this.running) {
       throw new Error("Nazar is already running");
     }
 
-    const unsubscribe = this.session.subscribe((event) => {
-      const nazarEvent = toNazarEvent(event);
-      if (nazarEvent) {
-        onEvent(nazarEvent);
-      }
+    this.running = true;
+    this.stderrTail = "";
+
+    const child = this.spawnPi();
+    this.child = child;
+    const send = makeSender(child);
+
+    // One reader spans the whole run: handshake response, prompt response,
+    // streamed events, and the settled signal all arrive on the same stdout.
+    const run = createRunController();
+    const reader = attachEventReader(child, send, this.pending, {
+      onEvent,
+      onSettled: run.settle,
+      onExit: (code) => {
+        const error = new Error(`pi exited during the run (code ${code}). ${this.failureDetail()}`);
+        this.rejectAllPending(error);
+        run.fail(error);
+      },
     });
 
     try {
-      await this.session.prompt(prompt, { expandPromptTemplates: false });
+      const state = await this.handshake(send);
+      this.trackSessionFile(state?.sessionFile);
+      await sendCommand(send, this.pending, { type: "prompt", message: prompt });
+      await run.outcome;
+      if (!this.sessionFile) {
+        // Fresh sessions only get a file once something happened; ask again.
+        const finalState = await sendCommand(send, this.pending, { type: "get_state" });
+        this.trackSessionFile(finalState.data?.sessionFile);
+      }
     } finally {
-      unsubscribe();
+      reader.detach();
+      this.killChild();
+      this.running = false;
     }
   }
 
   async cancel(): Promise<void> {
-    await this.session.abort();
+    const child = this.child;
+    if (!child || !this.running) {
+      return;
+    }
+
+    try {
+      child.stdin.write(JSON.stringify({ type: "abort" }) + "\n");
+    } catch {
+      // A broken stdin means the process is already going away.
+    }
+
+    // If abort does not settle the run, make sure the process dies.
+    const killTimer = setTimeout(() => {
+      if (this.child === child && child.exitCode === null) {
+        child.kill("SIGKILL");
+      }
+    }, ABORT_KILL_TIMEOUT_MS);
+    killTimer.unref?.();
   }
 
   dispose(): void {
-    this.session.dispose();
+    this.killChild();
+    this.running = false;
+  }
+
+  private async handshake(send: (command: object) => void): Promise<any> {
+    const timeout = new Promise<never>((_resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`pi did not answer the startup handshake in time. ${this.failureDetail()}`));
+      }, HANDSHAKE_TIMEOUT_MS);
+      timer.unref?.();
+    });
+
+    const state = await Promise.race([
+      sendCommand(send, this.pending, { type: "get_state" }),
+      timeout,
+    ]);
+    return state.data;
+  }
+
+  private spawnPi(): ChildProcessWithoutNullStreams {
+    const args = ["--mode", "rpc", "--approve", "--name", SESSION_NAME];
+    if (this.sessionFile) {
+      args.push("--session", this.sessionFile);
+    }
+
+    const command = this.options.piPath || "pi";
+    const child = spawn(command, args, {
+      cwd: this.options.cwd,
+      env: { ...process.env, ...this.options.env },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      this.stderrTail = (this.stderrTail + chunk).slice(-4000);
+    });
+
+    return child;
+  }
+
+  private rejectAllPending(error: Error): void {
+    for (const entry of this.pending.values()) {
+      entry.reject(error);
+    }
+    this.pending.clear();
+  }
+
+  private trackSessionFile(sessionFile: string | undefined): void {
+    if (!sessionFile || sessionFile === this.sessionFile) {
+      return;
+    }
+    this.sessionFile = sessionFile;
+    this.options.onSessionFile?.(sessionFile);
+  }
+
+  private killChild(): void {
+    const child = this.child;
+    this.child = undefined;
+    this.rejectAllPending(new Error("Nazar stopped"));
+    if (child && child.exitCode === null) {
+      child.kill("SIGTERM");
+    }
+  }
+
+  private failureDetail(): string {
+    const command = this.options.piPath || "pi";
+    const detail = this.stderrTail.trim();
+    return detail ? `Tried ${command}. ${detail}` : `Tried ${command}.`;
   }
 }
 
-async function createModelRuntime(options: NazarAgentOptions): Promise<ModelRuntime> {
-  const credentials = new InMemoryCredentialStore();
-  const modelRuntime = await ModelRuntime.create({
-    credentials,
-    modelsPath: null,
-    allowModelNetwork: false,
+function createRunController(): {
+  outcome: Promise<void>;
+  settle(): void;
+  fail(error: Error): void;
+} {
+  let settle: () => void = () => undefined;
+  let fail: (error: Error) => void = () => undefined;
+  const outcome = new Promise<void>((resolve, reject) => {
+    settle = resolve;
+    fail = reject;
   });
 
-  modelRuntime.registerProvider(PROVIDER_ID, {
-    name: "Nazar local llamafile",
-    baseUrl: options.baseUrl,
-    api: "openai-completions",
-    apiKey: "local-only",
-    models: [
-      {
-        id: options.modelId,
-        name: options.modelId,
-        reasoning: false,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 32_768,
-        maxTokens: 4_096,
-        compat: {
-          supportsDeveloperRole: false,
-          supportsUsageInStreaming: false,
-          maxTokensField: "max_tokens",
-        },
-      },
-    ],
-  });
-  await modelRuntime.setRuntimeApiKey(PROVIDER_ID, "local-only");
-
-  return modelRuntime;
+  return {
+    outcome,
+    settle: () => settle(),
+    fail: (error) => fail(error),
+  };
 }
 
-function toNazarEvent(event: AgentSessionEvent): NazarEvent | undefined {
-  if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-    return { type: "text", delta: event.assistantMessageEvent.delta };
+function makeSender(child: ChildProcessWithoutNullStreams): (command: object) => void {
+  return (command) => {
+    child.stdin.write(JSON.stringify(command) + "\n");
+  };
+}
+
+async function sendCommand(
+  send: (command: object) => void,
+  pending: Map<string, PendingCommand>,
+  command: Record<string, unknown>,
+): Promise<RpcResponse> {
+  const id = `nazar-${Math.random().toString(36).slice(2, 10)}`;
+
+  const response = new Promise<RpcResponse>((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+  });
+
+  try {
+    send({ ...command, id });
+  } catch (error) {
+    pending.delete(id);
+    throw error instanceof Error ? error : new Error(String(error));
   }
 
-  if (event.type === "tool_execution_start") {
-    return { type: "tool-start", name: event.toolName };
+  return response;
+}
+
+interface ReaderHooks {
+  onEvent(event: NazarEvent): void;
+  onSettled(): void;
+  onExit(code: number | null): void;
+}
+
+function attachEventReader(
+  child: ChildProcessWithoutNullStreams,
+  send: (command: object) => void,
+  pending: Map<string, PendingCommand>,
+  hooks: ReaderHooks,
+): { detach(): void } {
+  const feed = createJsonlReader((line) => {
+    let record: any;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      return;
+    }
+
+    if (record?.type === "response" && typeof record.id === "string") {
+      const entry = pending.get(record.id);
+      if (!entry) {
+        return;
+      }
+      pending.delete(record.id);
+      if (record.success) {
+        entry.resolve(record);
+      } else {
+        entry.reject(new Error(record.error || `pi rejected the ${record.command} command`));
+      }
+      return;
+    }
+
+    if (record?.type === "extension_ui_request") {
+      // Dialog requests would block the agent; the plugin never opts into
+      // extension dialogs, so cancel them immediately.
+      if (typeof record.id === "string") {
+        send({ type: "extension_ui_response", id: record.id, cancelled: true });
+      }
+      return;
+    }
+
+    const nazarEvent = toNazarEvent(record);
+    if (nazarEvent) {
+      hooks.onEvent(nazarEvent);
+    }
+    if (record?.type === "agent_settled") {
+      hooks.onSettled();
+    }
+  });
+
+  const onData = (chunk: Buffer) => feed(chunk.toString("utf8"));
+  const onExit = (code: number | null) => hooks.onExit(code);
+
+  child.stdout.on("data", onData);
+  child.on("exit", onExit);
+
+  return {
+    detach() {
+      child.stdout.off("data", onData);
+      child.off("exit", onExit);
+    },
+  };
+}
+
+function toNazarEvent(record: any): NazarEvent | undefined {
+  if (record?.type === "message_update") {
+    const delta = record.assistantMessageEvent;
+    if (delta?.type === "text_delta" && typeof delta.delta === "string") {
+      return { type: "text", delta: delta.delta };
+    }
+    return undefined;
   }
 
-  if (event.type === "tool_execution_end") {
-    return { type: "tool-end", name: event.toolName, isError: event.isError };
+  if (record?.type === "tool_execution_start") {
+    return { type: "tool-start", name: record.toolName ?? "unknown" };
+  }
+
+  if (record?.type === "tool_execution_end") {
+    return {
+      type: "tool-end",
+      name: record.toolName ?? "unknown",
+      isError: record.isError === true,
+    };
   }
 
   return undefined;

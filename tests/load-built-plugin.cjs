@@ -10,7 +10,10 @@ Module._load = function loadWithObsidianStub(request, parent, isMain) {
     return {
       Notice: class Notice {},
       Plugin: class Plugin {},
+      PluginSettingTab: class PluginSettingTab {},
+      Setting: class Setting {},
       TFile: class TFile {},
+      FileSystemAdapter: class FileSystemAdapter {},
       normalizePath: (value) => value,
     };
   }

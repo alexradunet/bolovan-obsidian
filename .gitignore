@@ -3,3 +3,4 @@ main.js
 *.map
 .tools/
 .nazar-test-vault/
+data.json

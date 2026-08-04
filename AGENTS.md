@@ -50,22 +50,13 @@ Apply these checks:
 These are requirements, not suggestions:
 
 - The private alpha targets Obsidian Desktop on Linux x86_64.
-- Runs are user-triggered. There are no background agents.
-- Inference is local and offline through a managed llamafile process.
-- The model process binds to loopback only and is never exposed to the LAN.
-- Agents have no network, shell, or raw-filesystem tools.
-- Vault access goes through Obsidian's Vault and MetadataCache interfaces.
-- `General` may read visible Markdown across the vault. `Journal` is restricted to its configured journal folder and explicitly attached notes.
-- Scope is enforced by tool implementation, never only by prompts.
-- New files default to `Agent Drafts/` and include minimal provenance.
-- Every write requires a visible diff and explicit approval.
-- Recheck source content before applying a change; stale proposals must fail safely.
-- Templates use a separate protected approval flow.
-- Findings cite source notes and excerpts. Interpretive inconsistencies are presented as possibilities, never facts.
-- Conversation history becomes context only when explicitly resumed. Vault notes are the only durable agent memory.
-- Retrieval starts with links, metadata, and bounded full-text search. Do not add embeddings until evidence justifies them.
-- Llamafiles come only from the bundled catalog, with pinned URLs, checksums, licenses, and resource metadata.
-- No automatic cloud or model fallback. Failures stop visibly without changing files.
+- Nazar runs [pi](https://pi.dev) in RPC mode as a child process. The plugin agent has the same capabilities as `pi` run interactively in the vault: same tools, same config discovery, same model layer, same trust machinery. See `docs/adr/0001-rpc-parity.md`.
+- Runs are user-triggered. One run at a time. There is no resident agent process between runs.
+- Inference, model selection, tools, extensions, skills, and project trust are delegated to pi. Nazar owns none of them.
+- Conversations persist in pi's shared session store. Nazar tracks its own session lineage and never resumes another session implicitly.
+- The plugin renders every tool execution visibly and provides cancel. There is no approval gate in the plugin; if one is ever needed it is built as a pi extension shared by TUI and plugin.
+- Failures stop visibly. Missing `pi`, handshake failure, and protocol errors surface the binary tried and pi's stderr tail without changing files.
+- The plugin binary lookup is `PATH` first with an optional explicit path setting; nothing else.
 
 ## Change discipline
 
@@ -79,7 +70,7 @@ These are requirements, not suggestions:
 
 ## Verification
 
-- Test scope enforcement, approval requirements, stale-write rejection, cancellation, and failure safety.
-- Use synthetic vault data in tests. Never require a real personal vault.
+- Test session lineage tracking, streaming, cancellation, and visible failure paths.
+- Integration tests spawn a real `pi` process against a synthetic vault and an isolated pi config dir with a fake model server. Never require a real personal vault.
 - Tests should survive internal refactors when the module interface and behavior remain unchanged.
-- A model or sidecar compatibility test must not read or modify the user's vault.
+- Tests must not read or modify the user's vault or the user's real pi config.
