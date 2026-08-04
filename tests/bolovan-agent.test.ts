@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { NazarAgent, type NazarEvent } from "../src/nazar-agent";
+import { BolovanAgent, type BolovanEvent } from "../src/bolovan-agent";
 import { createFakePiEnvironment, type FakeTurn, type FakePiEnvironment } from "./fake-model";
 
 const TEST_TIMEOUT_MS = 60_000;
@@ -30,7 +30,7 @@ const WRITE_GATE_EXTENSION = [
 ].join("\n");
 
 const environments: FakePiEnvironment[] = [];
-const agents: NazarAgent[] = [];
+const agents: BolovanAgent[] = [];
 
 afterEach(async () => {
   for (const agent of agents) {
@@ -44,7 +44,7 @@ afterEach(async () => {
   environments.length = 0;
 });
 
-describe("NazarAgent over pi RPC", () => {
+describe("BolovanAgent over pi RPC", () => {
   it(
     "runs pi against a synthetic vault with built-in tools",
     { timeout: TEST_TIMEOUT_MS },
@@ -60,7 +60,7 @@ describe("NazarAgent over pi RPC", () => {
         },
       });
 
-      const events: NazarEvent[] = [];
+      const events: BolovanEvent[] = [];
       agent.subscribe((event) => events.push(event));
       await agent.ask("Summarize today's journal.");
 
@@ -139,7 +139,7 @@ describe("NazarAgent over pi RPC", () => {
         env: environment.env,
         sessionFile: trackedSessionFile,
       });
-      const events: NazarEvent[] = [];
+      const events: BolovanEvent[] = [];
       secondAgent.subscribe((event) => events.push(event));
       await secondAgent.ask("Second question.");
 
@@ -189,7 +189,7 @@ describe("NazarAgent over pi RPC", () => {
       const agent = await createAgent({
         cwd: environment.vaultDir,
         env: environment.env,
-        piPath: "/nonexistent/nazar-test-pi",
+        piPath: "/nonexistent/bolovan-test-pi",
       });
 
       const startedAt = Date.now();
@@ -204,7 +204,7 @@ describe("NazarAgent over pi RPC", () => {
     { timeout: TEST_TIMEOUT_MS },
     async () => {
       const environment = await track(createFakePiEnvironment({ script: READ_JOURNAL_SCRIPT }));
-      let configuredPath: string | undefined = "/nonexistent/nazar-test-pi";
+      let configuredPath: string | undefined = "/nonexistent/bolovan-test-pi";
 
       const agent = await createAgent({
         cwd: environment.vaultDir,
@@ -217,7 +217,7 @@ describe("NazarAgent over pi RPC", () => {
       // The getter now returns nothing: the fallback lookup finds the real
       // binary, and the respawn picks it up.
       configuredPath = undefined;
-      const events: NazarEvent[] = [];
+      const events: BolovanEvent[] = [];
       agent.subscribe((event) => events.push(event));
       await agent.ask("Summarize today's journal.");
 
@@ -236,7 +236,7 @@ describe("NazarAgent over pi RPC", () => {
         env: { ...environment.env, PATH: "/usr/bin:/bin" },
       });
 
-      const events: NazarEvent[] = [];
+      const events: BolovanEvent[] = [];
       agent.subscribe((event) => events.push(event));
       await agent.ask("Summarize today's journal.");
 
@@ -261,7 +261,7 @@ describe("NazarAgent over pi RPC", () => {
         agent.respondUi(request.id, { confirmed: true });
       });
 
-      const events: NazarEvent[] = [];
+      const events: BolovanEvent[] = [];
       agent.subscribe((event) => events.push(event));
       await agent.ask("Write a note.");
 
@@ -292,7 +292,7 @@ describe("NazarAgent over pi RPC", () => {
         agent.respondUi(request.id, { confirmed: false });
       });
 
-      const events: NazarEvent[] = [];
+      const events: BolovanEvent[] = [];
       agent.subscribe((event) => events.push(event));
       await agent.ask("Write a note.");
 
@@ -351,14 +351,14 @@ async function track(
 }
 
 async function createAgent(
-  options: Parameters<typeof NazarAgent.create>[0],
-): Promise<NazarAgent> {
-  const agent = NazarAgent.create(options);
+  options: Parameters<typeof BolovanAgent.create>[0],
+): Promise<BolovanAgent> {
+  const agent = BolovanAgent.create(options);
   agents.push(agent);
   return agent;
 }
 
-function textOf(events: NazarEvent[]): string {
+function textOf(events: BolovanEvent[]): string {
   return events
     .filter((event): event is { type: "text"; delta: string } => event.type === "text")
     .map((event) => event.delta)

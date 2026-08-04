@@ -6,7 +6,7 @@ import { createJsonlReader } from "./jsonl";
 
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 const ABORT_KILL_TIMEOUT_MS = 5_000;
-const SESSION_NAME = "nazar";
+const SESSION_NAME = "bolovan";
 
 export interface RpcResponse {
   type: "response";
@@ -137,7 +137,7 @@ export class PiTransport {
   stop(): void {
     const child = this.child;
     this.stopping = true;
-    this.teardown(new Error("Nazar stopped"));
+    this.teardown(new Error("Bolovan stopped"));
     if (child && child.exitCode === null) {
       child.kill("SIGTERM");
     }
@@ -154,7 +154,7 @@ export class PiTransport {
     const command = findPiBinary({ piPath: configured });
     if (!command) {
       throw new Error(
-        "pi binary not found. Install pi (https://pi.dev) or set the binary path in Nazar settings. " +
+        "pi binary not found. Install pi (https://pi.dev) or set the binary path in Bolovan settings. " +
           "Searched PATH and the common install locations.",
       );
     }
@@ -341,7 +341,7 @@ async function sendCommand(
   pending: Map<string, PendingCommand>,
   command: Record<string, unknown>,
 ): Promise<RpcResponse> {
-  const id = `nazar-${Math.random().toString(36).slice(2, 10)}`;
+  const id = `bolovan-${Math.random().toString(36).slice(2, 10)}`;
 
   const response = new Promise<RpcResponse>((resolve, reject) => {
     pending.set(id, { resolve, reject });

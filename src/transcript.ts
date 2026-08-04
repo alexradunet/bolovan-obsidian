@@ -1,4 +1,4 @@
-import type { NazarEvent } from "./nazar-agent";
+import type { BolovanEvent } from "./bolovan-agent";
 
 export type TranscriptToolStatus = "running" | "done" | "error";
 
@@ -74,7 +74,7 @@ export class Transcript {
   }
 
   /** Apply one live agent event to the transcript. */
-  apply(event: NazarEvent): void {
+  apply(event: BolovanEvent): void {
     if (event.type === "text") {
       const item = this.openAssistant();
       item.markdown += event.delta;

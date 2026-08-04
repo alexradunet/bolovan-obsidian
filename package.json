@@ -1,5 +1,5 @@
 {
-  "name": "nazar-obsidian-plugin",
+  "name": "bolovan-obsidian-plugin",
   "version": "0.1.0",
   "description": "Run pi against your Obsidian vault from inside Obsidian.",
   "type": "module",

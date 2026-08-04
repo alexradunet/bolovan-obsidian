@@ -1,9 +1,9 @@
 import { Component, ItemView, MarkdownRenderer, Modal, WorkspaceLeaf } from "obsidian";
-import type NazarPlugin from "./main";
-import type { NazarEvent, NazarUiRequest } from "./nazar-agent";
+import type BolovanPlugin from "./main";
+import type { BolovanEvent, BolovanUiRequest } from "./bolovan-agent";
 import { Transcript, type TranscriptItem } from "./transcript";
 
-export const NAZAR_CHAT_VIEW = "nazar-chat-view";
+export const BOLOVAN_CHAT_VIEW = "bolovan-chat-view";
 
 const RENDER_THROTTLE_MS = 120;
 
@@ -12,7 +12,7 @@ const RENDER_THROTTLE_MS = 120;
  * adapter over the Transcript: it paints items keyed by id and owns nothing
  * but DOM concerns — throttling, scrolling, and dialogs.
  */
-export class NazarChatView extends ItemView {
+export class BolovanChatView extends ItemView {
   private readonly component = new Component();
   private readonly transcript = new Transcript();
   private readonly itemEls = new Map<string, HTMLElement>();
@@ -30,17 +30,17 @@ export class NazarChatView extends ItemView {
 
   constructor(
     leaf: WorkspaceLeaf,
-    private readonly plugin: NazarPlugin,
+    private readonly plugin: BolovanPlugin,
   ) {
     super(leaf);
   }
 
   getViewType(): string {
-    return NAZAR_CHAT_VIEW;
+    return BOLOVAN_CHAT_VIEW;
   }
 
   getDisplayText(): string {
-    return "Nazar chat";
+    return "Bolovan chat";
   }
 
   getIcon(): string {
@@ -90,30 +90,30 @@ export class NazarChatView extends ItemView {
   }
 
   private buildLayout(): void {
-    const root = this.contentEl.createDiv({ cls: "nazar-panel" });
+    const root = this.contentEl.createDiv({ cls: "bolovan-panel" });
 
-    const header = root.createDiv({ cls: "nazar-panel__header" });
-    this.sessionSelectEl = header.createEl("select", { cls: "nazar-chat__sessions" });
+    const header = root.createDiv({ cls: "bolovan-panel__header" });
+    this.sessionSelectEl = header.createEl("select", { cls: "bolovan-chat__sessions" });
     const newSessionButton = header.createEl("button", {
-      cls: "nazar-chat__new",
-      attr: { "aria-label": "New Nazar conversation" },
+      cls: "bolovan-chat__new",
+      attr: { "aria-label": "New Bolovan conversation" },
     });
     newSessionButton.innerHTML = "+";
     newSessionButton.addEventListener("click", () => void this.startNewSession());
     this.sessionSelectEl.addEventListener("change", () => void this.switchToSelectedSession());
 
-    const controls = root.createDiv({ cls: "nazar-chat__controls" });
-    this.modelSelectEl = controls.createEl("select", { cls: "nazar-chat__models" });
-    this.thinkingSelectEl = controls.createEl("select", { cls: "nazar-chat__thinking" });
-    this.statsEl = controls.createSpan({ cls: "nazar-chat__stats" });
+    const controls = root.createDiv({ cls: "bolovan-chat__controls" });
+    this.modelSelectEl = controls.createEl("select", { cls: "bolovan-chat__models" });
+    this.thinkingSelectEl = controls.createEl("select", { cls: "bolovan-chat__thinking" });
+    this.statsEl = controls.createSpan({ cls: "bolovan-chat__stats" });
     this.modelSelectEl.addEventListener("change", () => void this.applyModelSelection());
     this.thinkingSelectEl.addEventListener("change", () => void this.applyThinkingSelection());
 
-    this.transcriptEl = root.createDiv({ cls: "nazar-panel__transcript" });
+    this.transcriptEl = root.createDiv({ cls: "bolovan-panel__transcript" });
 
-    const composer = root.createDiv({ cls: "nazar-panel__composer" });
+    const composer = root.createDiv({ cls: "bolovan-panel__composer" });
     this.inputEl = composer.createEl("textarea", {
-      attr: { placeholder: "Ask Nazar… (Enter to send, Shift+Enter for a new line)" },
+      attr: { placeholder: "Ask Bolovan… (Enter to send, Shift+Enter for a new line)" },
     });
     this.inputEl.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
@@ -122,7 +122,7 @@ export class NazarChatView extends ItemView {
       }
     });
 
-    const actions = composer.createDiv({ cls: "nazar-panel__actions" });
+    const actions = composer.createDiv({ cls: "bolovan-panel__actions" });
     this.sendButtonEl = actions.createEl("button", { cls: "mod-cta", text: "Send" });
     this.sendButtonEl.addEventListener("click", () => void this.onSendButton());
   }
@@ -167,11 +167,11 @@ export class NazarChatView extends ItemView {
   private createItemEl(item: TranscriptItem): HTMLElement {
     let el: HTMLElement;
     if (item.kind === "tool") {
-      el = this.transcriptEl.createDiv({ cls: "nazar-tool" });
-      el.createSpan({ cls: "nazar-tool__status" });
-      el.createSpan({ cls: "nazar-tool__label" });
+      el = this.transcriptEl.createDiv({ cls: "bolovan-tool" });
+      el.createSpan({ cls: "bolovan-tool__status" });
+      el.createSpan({ cls: "bolovan-tool__label" });
     } else {
-      el = this.transcriptEl.createDiv({ cls: `nazar-message nazar-message--${item.kind}` });
+      el = this.transcriptEl.createDiv({ cls: `bolovan-message bolovan-message--${item.kind}` });
     }
     this.paintItem(item, el);
     this.scrollToBottom(true);
@@ -188,12 +188,12 @@ export class NazarChatView extends ItemView {
     }
 
     if (item.kind === "tool") {
-      const status = el.querySelector(".nazar-tool__status") as HTMLElement | null;
-      const label = el.querySelector(".nazar-tool__label") as HTMLElement | null;
+      const status = el.querySelector(".bolovan-tool__status") as HTMLElement | null;
+      const label = el.querySelector(".bolovan-tool__label") as HTMLElement | null;
       status?.setText(item.status === "running" ? "…" : item.status === "done" ? "✓" : "✗");
       label?.setText(item.target ? `${item.name} · ${item.target.slice(0, 80)}` : item.name);
-      el.toggleClass("nazar-tool--done", item.status === "done");
-      el.toggleClass("nazar-tool--error", item.status === "error");
+      el.toggleClass("bolovan-tool--done", item.status === "done");
+      el.toggleClass("bolovan-tool--error", item.status === "error");
       return;
     }
 
@@ -221,7 +221,7 @@ export class NazarChatView extends ItemView {
 
   // ----- agent events ------------------------------------------------------
 
-  private onAgentEvent(event: NazarEvent): void {
+  private onAgentEvent(event: BolovanEvent): void {
     // Dialog requests travel through the ui responder, not the transcript.
     if (event.type === "ui-request") {
       return;
@@ -269,7 +269,7 @@ export class NazarChatView extends ItemView {
       await this.plugin.startAgent();
       const agent = this.plugin.agent;
       if (!agent) {
-        throw new Error("Nazar is not ready");
+        throw new Error("Bolovan is not ready");
       }
 
       if (agent.status().isRunning) {
@@ -292,12 +292,12 @@ export class NazarChatView extends ItemView {
   }
 
   /** Extension dialog surface: approval gates, prompts, selections. */
-  private showDialog(request: NazarUiRequest): void {
+  private showDialog(request: BolovanUiRequest): void {
     const agent = this.plugin.agent;
     if (!agent) {
       return;
     }
-    new NazarDialogModal(this.app, request, (payload) => {
+    new BolovanDialogModal(this.app, request, (payload) => {
       agent.respondUi(request.id, payload);
     }).open();
   }
@@ -451,21 +451,21 @@ function describeError(error: unknown): string {
  * Obsidian dialog answering a pi extension UI request. Esc or close counts
  * as cancellation, which extensions receive as a declined dialog.
  */
-class NazarDialogModal extends Modal {
+class BolovanDialogModal extends Modal {
   constructor(
     app: any,
-    private readonly request: NazarUiRequest,
+    private readonly request: BolovanUiRequest,
     private readonly respond: (payload: Record<string, unknown>) => void,
   ) {
     super(app);
   }
 
   onOpen(): void {
-    this.titleEl.setText(this.request.title ?? "Nazar");
+    this.titleEl.setText(this.request.title ?? "Bolovan");
 
     if (this.request.message) {
       this.contentEl.createEl("pre", {
-        cls: "nazar-dialog__message",
+        cls: "bolovan-dialog__message",
         text: this.request.message,
       });
     }
@@ -491,7 +491,7 @@ class NazarDialogModal extends Modal {
   }
 
   private buildConfirm(): void {
-    const actions = this.contentEl.createDiv({ cls: "nazar-dialog__actions" });
+    const actions = this.contentEl.createDiv({ cls: "bolovan-dialog__actions" });
     const reject = actions.createEl("button", { text: "Reject" });
     reject.addEventListener("click", () => this.answer({ confirmed: false }));
     const approve = actions.createEl("button", { cls: "mod-cta", text: "Approve" });
@@ -505,7 +505,7 @@ class NazarDialogModal extends Modal {
       select.createEl("option", { value: option, text: option });
     }
 
-    const actions = this.contentEl.createDiv({ cls: "nazar-dialog__actions" });
+    const actions = this.contentEl.createDiv({ cls: "bolovan-dialog__actions" });
     const cancel = actions.createEl("button", { text: "Cancel" });
     cancel.addEventListener("click", () => this.answer({ cancelled: true }));
     const ok = actions.createEl("button", { cls: "mod-cta", text: "OK" });
@@ -515,12 +515,12 @@ class NazarDialogModal extends Modal {
 
   private buildTextInput(): void {
     const textarea = this.contentEl.createEl("textarea", {
-      cls: "nazar-dialog__text",
+      cls: "bolovan-dialog__text",
       attr: { placeholder: this.request.placeholder ?? "" },
       text: this.request.prefill ?? "",
     });
 
-    const actions = this.contentEl.createDiv({ cls: "nazar-dialog__actions" });
+    const actions = this.contentEl.createDiv({ cls: "bolovan-dialog__actions" });
     const cancel = actions.createEl("button", { text: "Cancel" });
     cancel.addEventListener("click", () => this.answer({ cancelled: true }));
     const ok = actions.createEl("button", { cls: "mod-cta", text: "OK" });

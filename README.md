@@ -1,15 +1,15 @@
-# Nazar
+# Bolovan
 
-Nazar runs [pi](https://pi.dev) against your Obsidian vault from inside Obsidian. Each run spawns `pi` in RPC mode with your vault as the working directory, so the agent you get in Obsidian has exactly the same capabilities as `pi` in your terminal: same tools, config, skills, extensions, and models.
+Bolovan runs [pi](https://pi.dev) against your Obsidian vault from inside Obsidian. Each run spawns `pi` in RPC mode with your vault as the working directory, so the agent you get in Obsidian has exactly the same capabilities as `pi` in your terminal: same tools, config, skills, extensions, and models.
 
 Requires the `pi` CLI installed on the machine. Conversations persist in pi's shared session store and stay resumable from the terminal.
 
 ## Commands
 
-- **Open Nazar chat** (also the ribbon icon) — sidebar chat over the active pi session: streaming Markdown, tool calls, model and thinking-level switching, session picker, steering while a run is active, Stop. The pi process lives while the view is open. Extension dialogs — including the vault's write-approval gate — appear as Obsidian modals.
-- **Summarize active note with Nazar** — asks the agent, in the chat, to read and summarize the open note.
+- **Open Bolovan chat** (also the ribbon icon) — sidebar chat over the active pi session: streaming Markdown, tool calls, model and thinking-level switching, session picker, steering while a run is active, Stop. The pi process lives while the view is open. Extension dialogs — including the vault's write-approval gate — appear as Obsidian modals.
+- **Summarize active note with Bolovan** — asks the agent, in the chat, to read and summarize the open note.
 - **Stop current agent run** — aborts the running agent.
-- **Start a new Nazar conversation** — starts a fresh session.
+- **Start a new Bolovan conversation** — starts a fresh session.
 
 Settings: an optional explicit `pi` binary path, used when `PATH` lookup is not enough (common when Obsidian's desktop environment differs from your shell).
 

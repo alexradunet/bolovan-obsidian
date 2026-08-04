@@ -1,6 +1,6 @@
 {
-  "id": "nazar",
-  "name": "Nazar",
+  "id": "bolovan",
+  "name": "Bolovan",
   "version": "0.1.0",
   "minAppVersion": "1.8.0",
   "description": "Run pi against your Obsidian vault from inside Obsidian.",

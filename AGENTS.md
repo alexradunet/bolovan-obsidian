@@ -1,4 +1,4 @@
-# Nazar engineering guide
+# Bolovan engineering guide
 
 Write code for human working memory. A reader should not need to hold more than a few facts at once to understand a change.
 
@@ -50,11 +50,11 @@ Apply these checks:
 These are requirements, not suggestions:
 
 - The private alpha targets Obsidian Desktop on Linux x86_64.
-- Nazar runs [pi](https://pi.dev) in RPC mode as a child process. The plugin agent has the same capabilities as `pi` run interactively in the vault: same tools, same config discovery, same model layer, same trust machinery. See `docs/adr/0001-rpc-parity.md`.
+- Bolovan runs [pi](https://pi.dev) in RPC mode as a child process. The plugin agent has the same capabilities as `pi` run interactively in the vault: same tools, same config discovery, same model layer, same trust machinery. See `docs/adr/0001-rpc-parity.md`.
 - Runs are user-triggered. One run at a time. There is no resident agent process between runs, except while the chat view is open: the sidebar chat keeps the pi process alive while the view is open and kills it when the view closes.
-- There is one active Nazar conversation. The chat view shows it and plugin commands (summarize, stop, new conversation) act on the same session.
-- Inference, model selection, tools, extensions, skills, and project trust are delegated to pi. Nazar owns none of them.
-- Conversations persist in pi's shared session store. Nazar tracks its own session lineage and never resumes another session implicitly.
+- There is one active Bolovan conversation. The chat view shows it and plugin commands (summarize, stop, new conversation) act on the same session.
+- Inference, model selection, tools, extensions, skills, and project trust are delegated to pi. Bolovan owns none of them.
+- Conversations persist in pi's shared session store. Bolovan tracks its own session lineage and never resumes another session implicitly.
 - The plugin renders every tool execution visibly and provides cancel. Approval policy is not plugin behavior: the plugin is the dialog surface for pi extension UI requests, and the vault's write-approval gate lives in the vault's `.pi/extensions/`, loaded by TUI and plugin alike.
 - Failures stop visibly. Missing `pi`, handshake failure, and protocol errors surface the binary tried and pi's stderr tail without changing files.
 - The plugin binary lookup is an explicit path setting, then PATH, then the stable pi install locations; desktop sessions often do not inherit the shell PATH. The path is read at process spawn time, so setting changes apply the next time pi starts. Nothing else.

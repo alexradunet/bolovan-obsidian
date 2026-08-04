@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { vaultSessionDirName } from "../src/nazar-agent";
+import { vaultSessionDirName } from "../src/bolovan-agent";
 import { findPiBinary } from "../src/pi-transport";
 
 const roots: string[] = [];
@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 async function createFakeHome(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "nazar-pi-binary-test-"));
+  const root = await mkdtemp(join(tmpdir(), "bolovan-pi-binary-test-"));
   roots.push(root);
   return root;
 }

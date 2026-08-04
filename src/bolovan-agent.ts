@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { PiTransport, type RpcResponse } from "./pi-transport";
 
-export interface NazarAgentOptions {
+export interface BolovanAgentOptions {
   /** Vault root; the spawned pi process runs with this cwd. */
   cwd: string;
   /**
@@ -20,17 +20,17 @@ export interface NazarAgentOptions {
   onSessionFile?(sessionFile: string): void;
 }
 
-export type NazarEvent =
+export type BolovanEvent =
   | { type: "text"; delta: string }
   | { type: "tool-start"; name: string; args: Record<string, unknown> }
   | { type: "tool-end"; name: string; isError: boolean }
   | { type: "settled" }
   | { type: "exited"; message: string }
-  | { type: "ui-request"; request: NazarUiRequest }
+  | { type: "ui-request"; request: BolovanUiRequest }
   | { type: "notify"; message: string; notifyType: string };
 
 /** Dialog requests from pi extensions (e.g. the write-approval gate). */
-export interface NazarUiRequest {
+export interface BolovanUiRequest {
   id: string;
   method: "select" | "confirm" | "input" | "editor";
   title?: string;
@@ -40,12 +40,12 @@ export interface NazarUiRequest {
   prefill?: string;
 }
 
-export interface NazarAgentStatus {
+export interface BolovanAgentStatus {
   isRunning: boolean;
   sessionFile: string | undefined;
 }
 
-export interface NazarModelState {
+export interface BolovanModelState {
   provider: string;
   modelId: string;
   thinkingLevel: string;
@@ -54,13 +54,13 @@ export interface NazarModelState {
   isStreaming: boolean;
 }
 
-export interface NazarModelInfo {
+export interface BolovanModelInfo {
   provider: string;
   id: string;
   name: string;
 }
 
-export interface NazarSessionSummary {
+export interface BolovanSessionSummary {
   path: string;
   modifiedMs: number;
   label: string;
@@ -71,15 +71,15 @@ export interface NazarSessionSummary {
  * meaning — runs, session lineage, dialog routing, the command wrappers —
  * and delegates the process and protocol to PiTransport.
  */
-export class NazarAgent {
+export class BolovanAgent {
   private readonly transport: PiTransport;
-  private listeners = new Set<(event: NazarEvent) => void>();
-  private uiResponder: ((request: NazarUiRequest) => void) | undefined;
+  private listeners = new Set<(event: BolovanEvent) => void>();
+  private uiResponder: ((request: BolovanUiRequest) => void) | undefined;
   private runController: ReturnType<typeof createRunController> | undefined;
   private running = false;
   private sessionFile: string | undefined;
 
-  private constructor(private readonly options: NazarAgentOptions) {
+  private constructor(private readonly options: BolovanAgentOptions) {
     const tracked = options.sessionFile;
     this.sessionFile = tracked && existsSync(tracked) ? tracked : undefined;
 
@@ -91,11 +91,11 @@ export class NazarAgent {
     this.transport.subscribe((record) => this.handleRecord(record));
   }
 
-  static create(options: NazarAgentOptions): NazarAgent {
-    return new NazarAgent(options);
+  static create(options: BolovanAgentOptions): BolovanAgent {
+    return new BolovanAgent(options);
   }
 
-  subscribe(listener: (event: NazarEvent) => void): () => void {
+  subscribe(listener: (event: BolovanEvent) => void): () => void {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -107,7 +107,7 @@ export class NazarAgent {
    * requests. Without a responder, dialog requests are cancelled at once so
    * the agent never blocks on an invisible prompt.
    */
-  setUiResponder(responder: ((request: NazarUiRequest) => void) | undefined): void {
+  setUiResponder(responder: ((request: BolovanUiRequest) => void) | undefined): void {
     this.uiResponder = responder;
   }
 
@@ -116,7 +116,7 @@ export class NazarAgent {
     this.transport.send({ type: "extension_ui_response", id, ...payload });
   }
 
-  status(): NazarAgentStatus {
+  status(): BolovanAgentStatus {
     return { isRunning: this.running, sessionFile: this.sessionFile };
   }
 
@@ -125,7 +125,7 @@ export class NazarAgent {
   }
 
   /** Spawn the pi process and complete the startup handshake. Idempotent. */
-  async start(): Promise<NazarModelState> {
+  async start(): Promise<BolovanModelState> {
     const state = await this.transport.start({ sessionFile: this.sessionFile });
     this.trackSessionFile(state?.sessionFile);
     return toModelState(state);
@@ -133,7 +133,7 @@ export class NazarAgent {
 
   async ask(prompt: string): Promise<void> {
     if (this.running) {
-      throw new Error("Nazar is already running");
+      throw new Error("Bolovan is already running");
     }
     await this.start();
 
@@ -170,7 +170,7 @@ export class NazarAgent {
   /** Kill the process; the agent can be started again. */
   stop(): void {
     this.running = false;
-    this.runController?.fail(new Error("Nazar stopped"));
+    this.runController?.fail(new Error("Bolovan stopped"));
     this.runController = undefined;
     this.transport.stop();
   }
@@ -180,7 +180,7 @@ export class NazarAgent {
     this.listeners.clear();
   }
 
-  async getState(): Promise<NazarModelState> {
+  async getState(): Promise<BolovanModelState> {
     const response = await this.command({ type: "get_state" });
     return toModelState(response.data ?? {});
   }
@@ -195,7 +195,7 @@ export class NazarAgent {
     return response.data ?? {};
   }
 
-  async listModels(): Promise<NazarModelInfo[]> {
+  async listModels(): Promise<BolovanModelInfo[]> {
     const response = await this.command({ type: "get_available_models" });
     const models = response.data?.models ?? [];
     return models.map((model: any) => ({
@@ -239,13 +239,13 @@ export class NazarAgent {
   }
 
   /** Sessions stored for this vault, newest first. */
-  listSessions(): NazarSessionSummary[] {
+  listSessions(): BolovanSessionSummary[] {
     const dir = join(this.sessionsRoot(), vaultSessionDirName(this.options.cwd));
     if (!existsSync(dir)) {
       return [];
     }
 
-    const summaries: NazarSessionSummary[] = [];
+    const summaries: BolovanSessionSummary[] = [];
     for (const entry of readdirSync(dir)) {
       if (!entry.endsWith(".jsonl")) {
         continue;
@@ -290,7 +290,7 @@ export class NazarAgent {
       return;
     }
 
-    const event = toNazarEvent(record);
+    const event = toBolovanEvent(record);
     if (event) {
       this.emit(event);
     }
@@ -302,7 +302,7 @@ export class NazarAgent {
       return;
     }
 
-    const request: NazarUiRequest = {
+    const request: BolovanUiRequest = {
       id: record.id,
       method: record.method,
       title: record.title,
@@ -319,7 +319,7 @@ export class NazarAgent {
     this.uiResponder(request);
   }
 
-  private emit(event: NazarEvent): void {
+  private emit(event: BolovanEvent): void {
     if (event.type === "settled") {
       this.runController?.settle();
     }
@@ -343,7 +343,7 @@ export class NazarAgent {
   }
 }
 
-function toModelState(data: any): NazarModelState {
+function toModelState(data: any): BolovanModelState {
   return {
     provider: data?.model?.provider ?? "unknown",
     modelId: data?.model?.id ?? "unknown",
@@ -392,7 +392,7 @@ function createRunController(): {
   };
 }
 
-function toNazarEvent(record: any): NazarEvent | undefined {
+function toBolovanEvent(record: any): BolovanEvent | undefined {
   if (record?.type === "message_update") {
     const delta = record.assistantMessageEvent;
     if (delta?.type === "text_delta" && typeof delta.delta === "string") {

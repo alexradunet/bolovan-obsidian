@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Transcript, type TranscriptItem } from "../src/transcript";
-import type { NazarEvent } from "../src/nazar-agent";
+import type { BolovanEvent } from "../src/bolovan-agent";
 
 function collectChanges(transcript: Transcript): TranscriptItem[] {
   const changes: TranscriptItem[] = [];
@@ -8,7 +8,7 @@ function collectChanges(transcript: Transcript): TranscriptItem[] {
   return changes;
 }
 
-function applyAll(transcript: Transcript, events: NazarEvent[]): void {
+function applyAll(transcript: Transcript, events: BolovanEvent[]): void {
   for (const event of events) {
     transcript.apply(event);
   }
@@ -236,7 +236,7 @@ describe("Transcript continuity and surface messages", () => {
     const changes = collectChanges(transcript);
 
     transcript.say("hello");
-    transcript.note("Nazar failed: pi exited");
+    transcript.note("Bolovan failed: pi exited");
 
     expect(changes.map((item) => item.kind)).toEqual(["user", "system"]);
   });

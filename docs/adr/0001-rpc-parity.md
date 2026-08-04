@@ -5,7 +5,7 @@ Status: Accepted
 
 ## Context
 
-Nazar's first spike embedded the pi SDK (`@earendil-works/pi-coding-agent`, `pi-ai`, `typebox`) directly in the Obsidian plugin bundle and registered a private local-llamafile provider with one scoped `vault_read` tool.
+Bolovan's first spike embedded the pi SDK (`@earendil-works/pi-coding-agent`, `pi-ai`, `typebox`) directly in the Obsidian plugin bundle and registered a private local-llamafile provider with one scoped `vault_read` tool.
 
 That approach hit three walls:
 
@@ -15,13 +15,13 @@ That approach hit three walls:
 
 ## Decision
 
-Nazar spawns `pi --mode rpc` as a child process per run and speaks the JSONL RPC protocol over stdin/stdout. The plugin ships no pi code.
+Bolovan spawns `pi --mode rpc` as a child process per run and speaks the JSONL RPC protocol over stdin/stdout. The plugin ships no pi code.
 
 Parity is literal:
 
 - Spawn cwd is the vault root with `--approve`, so project resources load exactly as they would for the TUI.
 - No lockdown flags, no system-prompt override, no tool restriction, no isolated config dir in production.
-- Sessions persist in pi's shared store; Nazar tracks its own session file (`--session <path>`) so plugin lineage never mixes with other sessions implicitly, and plugin conversations remain resumable from the TUI.
+- Sessions persist in pi's shared store; Bolovan tracks its own session file (`--session <path>`) so plugin lineage never mixes with other sessions implicitly, and plugin conversations remain resumable from the TUI.
 - The pi binary is resolved on `PATH` with an optional explicit-path setting; startup handshake is `get_state`, and failures are reported visibly with the binary tried and pi's stderr tail.
 
 ## Retired constraints
@@ -40,7 +40,7 @@ Kept: runs are user-triggered; failures stop visibly; tool executions render vis
 ## Consequences
 
 - The plugin bundle shrinks from ~7.5 MB to ~7 KB; pi's dependencies leave the repo entirely.
-- Nazar requires the pi CLI installed on the machine. Protocol drift between pi versions is accepted; the startup handshake is the compatibility check and failures stay visible.
+- Bolovan requires the pi CLI installed on the machine. Protocol drift between pi versions is accepted; the startup handshake is the compatibility check and failures stay visible.
 - Tests spawn a real `pi` process against an isolated pi config dir (`PI_CODING_AGENT_DIR`) and a synthetic model server, while production runs fully parity. The asymmetry is deliberate: hermetic tests, parity production.
 - Safety comes from the same place it comes from in the TUI: an explicit user trigger, visible streaming, cancel, and the session record.
 

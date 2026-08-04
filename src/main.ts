@@ -7,45 +7,45 @@ import {
   Setting,
   TFile,
 } from "obsidian";
-import { NAZAR_CHAT_VIEW, NazarChatView } from "./chat-view";
-import { NazarAgent } from "./nazar-agent";
+import { BOLOVAN_CHAT_VIEW, BolovanChatView } from "./chat-view";
+import { BolovanAgent } from "./bolovan-agent";
 
-interface NazarSettings {
+interface BolovanSettings {
   piPath?: string;
   sessionFile?: string;
 }
 
-export default class NazarPlugin extends Plugin {
-  private agentInternal: NazarAgent | undefined;
-  private nazarSettings: NazarSettings = {};
+export default class BolovanPlugin extends Plugin {
+  private agentInternal: BolovanAgent | undefined;
+  private bolovanSettings: BolovanSettings = {};
 
   async onload(): Promise<void> {
-    this.nazarSettings = Object.assign({}, (await this.loadData()) as NazarSettings | undefined);
+    this.bolovanSettings = Object.assign({}, (await this.loadData()) as BolovanSettings | undefined);
 
     // One agent for the plugin's life. Settings it might need (pi path,
     // session lineage) are read lazily, so nothing here recreates it.
-    this.agentInternal = NazarAgent.create({
+    this.agentInternal = BolovanAgent.create({
       cwd: this.vaultRoot(),
-      piPath: () => this.nazarSettings.piPath,
-      sessionFile: this.nazarSettings.sessionFile,
+      piPath: () => this.bolovanSettings.piPath,
+      sessionFile: this.bolovanSettings.sessionFile,
       onSessionFile: (sessionFile) => void this.persistSessionFile(sessionFile),
     });
 
-    this.registerView(NAZAR_CHAT_VIEW, (leaf) => new NazarChatView(leaf, this));
+    this.registerView(BOLOVAN_CHAT_VIEW, (leaf) => new BolovanChatView(leaf, this));
 
-    this.addRibbonIcon("message-square", "Open Nazar chat", () => {
+    this.addRibbonIcon("message-square", "Open Bolovan chat", () => {
       void this.toggleChatView();
     });
 
     this.addCommand({
       id: "open-chat",
-      name: "Open Nazar chat",
+      name: "Open Bolovan chat",
       callback: () => void this.toggleChatView(),
     });
 
     this.addCommand({
       id: "summarize-active-note",
-      name: "Summarize active note with Nazar",
+      name: "Summarize active note with Bolovan",
       checkCallback: (checking) => {
         const activeNote = this.app.workspace.getActiveFile();
         if (!activeNote || activeNote.extension !== "md") {
@@ -73,11 +73,11 @@ export default class NazarPlugin extends Plugin {
 
     this.addCommand({
       id: "new-conversation",
-      name: "Start a new Nazar conversation",
+      name: "Start a new Bolovan conversation",
       callback: () => void this.startNewConversation(),
     });
 
-    this.addSettingTab(new NazarSettingTab(this.app, this));
+    this.addSettingTab(new BolovanSettingTab(this.app, this));
   }
 
   onunload(): void {
@@ -85,18 +85,18 @@ export default class NazarPlugin extends Plugin {
     this.agentInternal = undefined;
   }
 
-  get agent(): NazarAgent | undefined {
+  get agent(): BolovanAgent | undefined {
     return this.agentInternal;
   }
 
   get piPath(): string | undefined {
-    return this.nazarSettings.piPath;
+    return this.bolovanSettings.piPath;
   }
 
   /** Start the pi process if needed. Idempotent. */
   async startAgent(): Promise<void> {
     if (!this.agentInternal) {
-      throw new Error("Nazar is not ready");
+      throw new Error("Bolovan is not ready");
     }
     if (!this.agentInternal.started()) {
       await this.agentInternal.start();
@@ -110,12 +110,12 @@ export default class NazarPlugin extends Plugin {
 
   /** Saved only; a changed path applies the next time pi starts. */
   async setPiPath(piPath: string): Promise<void> {
-    this.nazarSettings.piPath = piPath || undefined;
-    await this.saveData(this.nazarSettings);
+    this.bolovanSettings.piPath = piPath || undefined;
+    await this.saveData(this.bolovanSettings);
   }
 
   async openChatView(): Promise<void> {
-    const existingLeaf = this.app.workspace.getLeavesOfType(NAZAR_CHAT_VIEW)[0];
+    const existingLeaf = this.app.workspace.getLeavesOfType(BOLOVAN_CHAT_VIEW)[0];
     if (existingLeaf) {
       this.app.workspace.revealLeaf(existingLeaf);
       return;
@@ -123,14 +123,14 @@ export default class NazarPlugin extends Plugin {
 
     const leaf = this.app.workspace.getRightLeaf(false);
     if (!leaf) {
-      throw new Error("No sidebar available for the Nazar chat");
+      throw new Error("No sidebar available for the Bolovan chat");
     }
-    await leaf.setViewState({ type: NAZAR_CHAT_VIEW, active: true });
+    await leaf.setViewState({ type: BOLOVAN_CHAT_VIEW, active: true });
     this.app.workspace.revealLeaf(leaf);
   }
 
   private async toggleChatView(): Promise<void> {
-    const existingLeaf = this.app.workspace.getLeavesOfType(NAZAR_CHAT_VIEW)[0];
+    const existingLeaf = this.app.workspace.getLeavesOfType(BOLOVAN_CHAT_VIEW)[0];
     if (existingLeaf && this.app.workspace.activeLeaf === existingLeaf) {
       existingLeaf.detach();
       return;
@@ -149,9 +149,9 @@ export default class NazarPlugin extends Plugin {
       } else {
         agent.resetSession();
       }
-      new Notice("Nazar starts a new conversation");
+      new Notice("Bolovan starts a new conversation");
     } catch (error) {
-      new Notice(`Nazar failed: ${describeError(error)}`);
+      new Notice(`Bolovan failed: ${describeError(error)}`);
     }
   }
 
@@ -163,21 +163,21 @@ export default class NazarPlugin extends Plugin {
         `Read ${note.path} and summarize it in three concise bullets.`,
       );
     } catch (error) {
-      new Notice(`Nazar failed: ${describeError(error)}`);
+      new Notice(`Bolovan failed: ${describeError(error)}`);
     }
   }
 
   private vaultRoot(): string {
     const adapter = this.app.vault.adapter;
     if (!(adapter instanceof FileSystemAdapter)) {
-      throw new Error("Nazar only runs on desktop file-system vaults");
+      throw new Error("Bolovan only runs on desktop file-system vaults");
     }
     return adapter.getBasePath();
   }
 
   private async persistSessionFile(sessionFile: string): Promise<void> {
-    this.nazarSettings.sessionFile = sessionFile || undefined;
-    await this.saveData(this.nazarSettings);
+    this.bolovanSettings.sessionFile = sessionFile || undefined;
+    await this.saveData(this.bolovanSettings);
   }
 }
 
@@ -185,10 +185,10 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-class NazarSettingTab extends PluginSettingTab {
+class BolovanSettingTab extends PluginSettingTab {
   constructor(
     app: App,
-    private readonly plugin: NazarPlugin,
+    private readonly plugin: BolovanPlugin,
   ) {
     super(app, plugin);
   }

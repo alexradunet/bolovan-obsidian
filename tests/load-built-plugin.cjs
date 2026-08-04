@@ -32,11 +32,11 @@ Module._load = function loadWithObsidianStub(request, parent, isMain) {
 };
 
 try {
-  const temporaryBundle = path.join(os.tmpdir(), "nazar-load-test.cjs");
+  const temporaryBundle = path.join(os.tmpdir(), "bolovan-load-test.cjs");
   fs.copyFileSync(path.resolve(__dirname, "../main.js"), temporaryBundle);
   require(temporaryBundle);
   console.log("Built Obsidian plugin module loaded successfully");
 } finally {
   Module._load = originalLoad;
-  fs.rmSync(path.join(os.tmpdir(), "nazar-load-test.cjs"), { force: true });
+  fs.rmSync(path.join(os.tmpdir(), "bolovan-load-test.cjs"), { force: true });
 }

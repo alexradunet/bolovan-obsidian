@@ -24,7 +24,7 @@ export interface FakePiEnvironmentOptions {
 export interface FakePiEnvironment {
   vaultDir: string;
   agentDir: string;
-  /** Pass straight to NazarAgent.create as `env`. */
+  /** Pass straight to BolovanAgent.create as `env`. */
   env: Record<string, string>;
   /** Parsed request bodies pi sent to the model, in order. */
   requestBodies: any[];
@@ -34,13 +34,13 @@ export interface FakePiEnvironment {
 /**
  * A hermetic pi test environment: synthetic vault, isolated pi config dir
  * wired to a scripted fake OpenAI-compatible model server, and the env
- * block for a NazarAgent. Real pi spawns against it; nothing outside the
+ * block for a BolovanAgent. Real pi spawns against it; nothing outside the
  * temp dirs is touched.
  */
 export async function createFakePiEnvironment(
   options: FakePiEnvironmentOptions,
 ): Promise<FakePiEnvironment> {
-  const root = await mkdtemp(join(tmpdir(), "nazar-test-"));
+  const root = await mkdtemp(join(tmpdir(), "bolovan-test-"));
   const vaultDir = join(root, "vault");
   const agentDir = join(root, "agent");
   await mkdir(join(vaultDir, "Journal"), { recursive: true });
@@ -92,7 +92,7 @@ export async function createFakePiEnvironment(
   await writeFile(
     join(agentDir, "settings.json"),
     JSON.stringify({
-      defaultProvider: "nazar-test",
+      defaultProvider: "bolovan-test",
       defaultModel: "test-model",
       enableInstallTelemetry: false,
     }),
@@ -101,7 +101,7 @@ export async function createFakePiEnvironment(
     join(agentDir, "models.json"),
     JSON.stringify({
       providers: {
-        "nazar-test": {
+        "bolovan-test": {
           baseUrl: `http://127.0.0.1:${address.port}/v1`,
           api: "openai-completions",
           apiKey: "local-test",
@@ -112,7 +112,7 @@ export async function createFakePiEnvironment(
           models: [
             {
               id: "test-model",
-              name: "Nazar test model",
+              name: "Bolovan test model",
               reasoning: false,
               input: ["text"],
               cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
