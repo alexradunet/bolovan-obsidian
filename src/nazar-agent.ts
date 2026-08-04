@@ -1,12 +1,7 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { accessSync, constants, existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
-import { createJsonlReader } from "./jsonl";
-
-const HANDSHAKE_TIMEOUT_MS = 10_000;
-const ABORT_KILL_TIMEOUT_MS = 5_000;
-const SESSION_NAME = "nazar";
+import { join } from "node:path";
+import { PiTransport, type RpcResponse } from "./pi-transport";
 
 export interface NazarAgentOptions {
   /** Vault root; the spawned pi process runs with this cwd. */
@@ -71,42 +66,29 @@ export interface NazarSessionSummary {
   label: string;
 }
 
-interface PendingCommand {
-  resolve(response: RpcResponse): void;
-  reject(error: Error): void;
-}
-
-interface RpcResponse {
-  type: "response";
-  id?: string;
-  command?: string;
-  success: boolean;
-  data?: any;
-  error?: string;
-}
-
 /**
- * Long-lived RPC client for one pi process. The process starts with start()
- * (or implicitly on the first ask) and stays alive until stop(), so chat
- * sessions can stream, steer, and switch models. One run at a time; steering
- * is the only message accepted while running.
+ * The vault session façade over one pi process. Owns everything with
+ * meaning — runs, session lineage, dialog routing, the command wrappers —
+ * and delegates the process and protocol to PiTransport.
  */
 export class NazarAgent {
-  private child: ChildProcessWithoutNullStreams | undefined;
-  private send: ((command: object) => void) | undefined;
-  private stderrTail = "";
-  private resolvedCommand: string | undefined;
-  private pending = new Map<string, PendingCommand>();
+  private readonly transport: PiTransport;
   private listeners = new Set<(event: NazarEvent) => void>();
   private uiResponder: ((request: NazarUiRequest) => void) | undefined;
   private runController: ReturnType<typeof createRunController> | undefined;
   private running = false;
-  private stopping = false;
   private sessionFile: string | undefined;
 
   private constructor(private readonly options: NazarAgentOptions) {
     const tracked = options.sessionFile;
     this.sessionFile = tracked && existsSync(tracked) ? tracked : undefined;
+
+    this.transport = new PiTransport({
+      cwd: options.cwd,
+      piPath: options.piPath,
+      env: options.env,
+    });
+    this.transport.subscribe((record) => this.handleRecord(record));
   }
 
   static create(options: NazarAgentOptions): NazarAgent {
@@ -131,10 +113,7 @@ export class NazarAgent {
 
   /** Answer an extension UI dialog request. */
   respondUi(id: string, payload: Record<string, unknown>): void {
-    if (!this.send) {
-      return;
-    }
-    this.send({ type: "extension_ui_response", id, ...payload });
+    this.transport.send({ type: "extension_ui_response", id, ...payload });
   }
 
   status(): NazarAgentStatus {
@@ -142,53 +121,14 @@ export class NazarAgent {
   }
 
   started(): boolean {
-    return this.child !== undefined;
+    return this.transport.started();
   }
 
   /** Spawn the pi process and complete the startup handshake. Idempotent. */
   async start(): Promise<NazarModelState> {
-    if (this.child) {
-      return this.getState();
-    }
-
-    this.stderrTail = "";
-    const command = this.resolveCommand();
-    this.resolvedCommand = command;
-
-    const child = this.spawnPi(command);
-    this.child = child;
-    this.send = makeSender(child);
-
-    child.on("error", (error) => {
-      const wrapped = new Error(`pi could not be started: ${error.message}. ${this.failureDetail()}`);
-      this.teardown(wrapped);
-    });
-    child.on("exit", (code) => {
-      const message = `pi exited (code ${code}). ${this.failureDetail()}`;
-      const intentional = this.stopping;
-      this.teardown(new Error(message));
-      if (!intentional) {
-        this.emit({ type: "exited", message });
-      }
-    });
-    attachEventReader(child, this.send, this.pending, (event) => this.emit(event), {
-      onUiRequest: (request) => this.handleUiRequest(request),
-      onNotify: (message, notifyType) => this.emit({ type: "notify", message, notifyType }),
-    });
-
-    const state = await this.handshake();
-    this.trackSessionFile(state.sessionFile);
-    return this.awaitModel();
-  }
-
-  /** pi resolves the model shortly after startup; wait until get_state sees it. */
-  private async awaitModel(): Promise<NazarModelState> {
-    let state = await this.getState();
-    for (let attempt = 0; attempt < 25 && state.modelId === "unknown"; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      state = await this.getState();
-    }
-    return state;
+    const state = await this.transport.start({ sessionFile: this.sessionFile });
+    this.trackSessionFile(state?.sessionFile);
+    return toModelState(state);
   }
 
   async ask(prompt: string): Promise<void> {
@@ -221,47 +161,28 @@ export class NazarAgent {
   }
 
   async cancel(): Promise<void> {
-    const child = this.child;
-    if (!child || !this.running) {
+    if (!this.started() || !this.running) {
       return;
     }
-
-    try {
-      child.stdin.write(JSON.stringify({ type: "abort" }) + "\n");
-    } catch {
-      // A broken stdin means the process is already going away.
-    }
-
-    // If abort does not settle the run, make sure the process dies.
-    const killTimer = setTimeout(() => {
-      if (this.child === child && child.exitCode === null) {
-        child.kill("SIGKILL");
-      }
-    }, ABORT_KILL_TIMEOUT_MS);
-    killTimer.unref?.();
+    this.transport.abort();
   }
 
   /** Kill the process; the agent can be started again. */
   stop(): void {
-    this.killChild();
+    this.running = false;
+    this.runController?.fail(new Error("Nazar stopped"));
+    this.runController = undefined;
+    this.transport.stop();
   }
 
   dispose(): void {
-    this.killChild();
+    this.stop();
     this.listeners.clear();
   }
 
   async getState(): Promise<NazarModelState> {
     const response = await this.command({ type: "get_state" });
-    const data = response.data ?? {};
-    return {
-      provider: data.model?.provider ?? "unknown",
-      modelId: data.model?.id ?? "unknown",
-      thinkingLevel: data.thinkingLevel ?? "off",
-      sessionFile: data.sessionFile,
-      messageCount: data.messageCount ?? 0,
-      isStreaming: data.isStreaming === true,
-    };
+    return toModelState(response.data ?? {});
   }
 
   async getMessages(): Promise<any[]> {
@@ -342,63 +263,37 @@ export class NazarAgent {
     return summaries.sort((a, b) => b.modifiedMs - a.modifiedMs);
   }
 
-  private resolveCommand(): string {
-    const configured = typeof this.options.piPath === "function"
-      ? this.options.piPath()
-      : this.options.piPath;
-    const command = findPiBinary({ piPath: configured });
-    if (!command) {
-      throw new Error(
-        "pi binary not found. Install pi (https://pi.dev) or set the binary path in Nazar settings. " +
-          "Searched PATH and the common install locations.",
-      );
-    }
-    if (command !== "pi" && !existsSync(command)) {
-      throw new Error(`pi binary not found at the configured path: ${command}`);
-    }
-    return command;
-  }
-
   private async command(command: Record<string, unknown>): Promise<RpcResponse> {
-    if (!this.send) {
-      throw new Error("Nazar is not connected to pi");
-    }
-    return sendCommand(this.send, this.pending, command);
+    return this.transport.command(command);
   }
 
-  private async handshake(): Promise<any> {
-    const timeout = new Promise<never>((_resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error(`pi did not answer the startup handshake in time. ${this.failureDetail()}`));
-      }, HANDSHAKE_TIMEOUT_MS);
-      timer.unref?.();
-    });
-
-    const response = await Promise.race([
-      this.command({ type: "get_state" }),
-      timeout,
-    ]);
-    return response.data ?? {};
-  }
-
-  private spawnPi(command: string): ChildProcessWithoutNullStreams {
-    const args = ["--mode", "rpc", "--approve", "--name", SESSION_NAME];
-    if (this.sessionFile) {
-      args.push("--session", this.sessionFile);
+  private handleRecord(record: any): void {
+    if (record?.type === "transport_exited") {
+      const error = new Error(record.message);
+      this.runController?.fail(error);
+      this.runController = undefined;
+      this.running = false;
+      this.emit({ type: "exited", message: record.message });
+      return;
     }
 
-    const child = spawn(command, args, {
-      cwd: this.options.cwd,
-      env: childEnv(command, this.options.env),
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    if (record?.type === "extension_ui_request" && typeof record.id === "string") {
+      if (record.method === "notify") {
+        this.emit({
+          type: "notify",
+          message: String(record.message ?? ""),
+          notifyType: String(record.notifyType ?? "info"),
+        });
+        return;
+      }
+      this.handleUiRequest(record);
+      return;
+    }
 
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => {
-      this.stderrTail = (this.stderrTail + chunk).slice(-4000);
-    });
-
-    return child;
+    const event = toNazarEvent(record);
+    if (event) {
+      this.emit(event);
+    }
   }
 
   private handleUiRequest(record: any): void {
@@ -433,19 +328,6 @@ export class NazarAgent {
     }
   }
 
-  /** Fail everything in flight after the process dies or cannot start. */
-  private teardown(error: Error): void {
-    this.child = undefined;
-    this.send = undefined;
-    this.running = false;
-    for (const entry of this.pending.values()) {
-      entry.reject(error);
-    }
-    this.pending.clear();
-    this.runController?.fail(error);
-    this.runController = undefined;
-  }
-
   private trackSessionFile(sessionFile: string | undefined): void {
     if (!sessionFile || sessionFile === this.sessionFile) {
       return;
@@ -454,30 +336,22 @@ export class NazarAgent {
     this.options.onSessionFile?.(sessionFile);
   }
 
-  private killChild(): void {
-    const child = this.child;
-    this.stopping = true;
-    this.teardown(new Error("Nazar stopped"));
-    if (child && child.exitCode === null) {
-      child.kill("SIGTERM");
-    }
-    // Reset after the exit event has had a chance to observe the flag.
-    setTimeout(() => {
-      this.stopping = false;
-    }, 100).unref?.();
-  }
-
   private sessionsRoot(): string {
     const env = { ...process.env, ...this.options.env };
     const agentDir = env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
     return join(agentDir, "sessions");
   }
+}
 
-  private failureDetail(): string {
-    const command = this.resolvedCommand || "pi";
-    const detail = this.stderrTail.trim();
-    return detail ? `Tried ${command}. ${detail}` : `Tried ${command}.`;
-  }
+function toModelState(data: any): NazarModelState {
+  return {
+    provider: data?.model?.provider ?? "unknown",
+    modelId: data?.model?.id ?? "unknown",
+    thinkingLevel: data?.thinkingLevel ?? "off",
+    sessionFile: data?.sessionFile,
+    messageCount: data?.messageCount ?? 0,
+    isStreaming: data?.isStreaming === true,
+  };
 }
 
 /** pi stores sessions under a directory derived from the cwd with a trailing
@@ -494,74 +368,6 @@ function sessionLabel(fileName: string): string {
     return fileName;
   }
   return `${match[1]} ${match[2]}:${match[3]}:${match[4]}`;
-}
-
-/**
- * Resolve the pi binary. Desktop Obsidian sessions usually do not inherit the
- * shell PATH, so a bare PATH lookup is not enough: after PATH, probe the
- * stable install locations the pi installer maintains.
- */
-export function findPiBinary(options: {
-  piPath?: string;
-  pathEnv?: string;
-  homeDir?: string;
-} = {}): string | undefined {
-  if (options.piPath) {
-    return options.piPath;
-  }
-
-  const pathEnv = options.pathEnv ?? process.env.PATH ?? "";
-  for (const dir of pathEnv.split(delimiter)) {
-    if (!dir) {
-      continue;
-    }
-    const candidate = join(dir, "pi");
-    if (isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  const homeDir = options.homeDir ?? homedir();
-  const probeLocations = [
-    join(homeDir, ".local", "bin", "pi"),
-    "/usr/local/bin/pi",
-    join(homeDir, ".local", "share", "pi-node", "current", "bin", "pi"),
-  ];
-  for (const candidate of probeLocations) {
-    if (isExecutable(candidate)) {
-      return candidate;
-    }
-  }
-
-  return undefined;
-}
-
-/**
- * Build the child environment. Desktop sessions often lack the shell PATH,
- * and the pi launcher is a node script: the directory holding the resolved
- * pi binary also holds the matching node, so it goes first on PATH. When no
- * PATH exists at all, restore the standard system directories so pi's own
- * tools still find basic commands.
- */
-function childEnv(command: string, extraEnv: Record<string, string> | undefined): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...extraEnv };
-  const fallbackPath = "/usr/local/bin:/usr/bin:/bin";
-  const configuredPath = env.PATH ?? "";
-  const basePath = configuredPath || fallbackPath;
-  env.PATH = `${dirname(command)}${delimiter}${basePath}`;
-  return env;
-}
-
-function isExecutable(path: string): boolean {
-  try {
-    if (!statSync(path).isFile()) {
-      return false;
-    }
-    accessSync(path, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function createRunController(): {
@@ -584,87 +390,6 @@ function createRunController(): {
     settle: () => settle(),
     fail: (error) => fail(error),
   };
-}
-
-function makeSender(child: ChildProcessWithoutNullStreams): (command: object) => void {
-  return (command) => {
-    child.stdin.write(JSON.stringify(command) + "\n");
-  };
-}
-
-async function sendCommand(
-  send: (command: object) => void,
-  pending: Map<string, PendingCommand>,
-  command: Record<string, unknown>,
-): Promise<RpcResponse> {
-  const id = `nazar-${Math.random().toString(36).slice(2, 10)}`;
-
-  const response = new Promise<RpcResponse>((resolve, reject) => {
-    pending.set(id, { resolve, reject });
-  });
-
-  try {
-    send({ ...command, id });
-  } catch (error) {
-    pending.delete(id);
-    throw error instanceof Error ? error : new Error(String(error));
-  }
-
-  return response;
-}
-
-function attachEventReader(
-  child: ChildProcessWithoutNullStreams,
-  send: (command: object) => void,
-  pending: Map<string, PendingCommand>,
-  onEvent: (event: NazarEvent) => void,
-  hooks: {
-    onUiRequest(record: any): void;
-    onNotify(message: string, notifyType: string): void;
-  },
-): void {
-  const feed = createJsonlReader((line) => {
-    let record: any;
-    try {
-      record = JSON.parse(line);
-    } catch {
-      return;
-    }
-
-    if (record?.type === "response" && typeof record.id === "string") {
-      const entry = pending.get(record.id);
-      if (!entry) {
-        return;
-      }
-      pending.delete(record.id);
-      if (record.success) {
-        entry.resolve(record);
-      } else {
-        entry.reject(new Error(record.error || `pi rejected the ${record.command} command`));
-      }
-      return;
-    }
-
-    if (record?.type === "extension_ui_request") {
-      if (typeof record.id !== "string") {
-        return;
-      }
-      if (record.method === "notify") {
-        hooks.onNotify(String(record.message ?? ""), String(record.notifyType ?? "info"));
-        return;
-      }
-      hooks.onUiRequest(record);
-      return;
-    }
-
-    const nazarEvent = toNazarEvent(record);
-    if (nazarEvent) {
-      onEvent(nazarEvent);
-    }
-  });
-
-  child.stdout.setEncoding("utf8");
-  child.stdout.on("data", (chunk: Buffer) => feed(chunk.toString("utf8")));
 }
 
 function toNazarEvent(record: any): NazarEvent | undefined {
