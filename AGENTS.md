@@ -1,6 +1,76 @@
-# Bolovan engineering guide
+# Bolovan engineering mythos
 
-Write code for human working memory. A reader should not need to hold more than a few facts at once to understand a change.
+Bolovan must remain small enough that one person—or one LLM with a focused
+context—can understand the whole project. This is a product requirement, not an
+aesthetic preference.
+
+Write code for human working memory. A reader should rarely need to hold more
+than four facts at once to understand a change. The best implementation is the
+smallest unsurprising one that completely solves the important problem.
+
+## Order of values
+
+When principles compete, decide in this order:
+
+1. Preserve user data and explicit approval boundaries.
+2. Deliver the vital user outcome—the 20% of behavior that creates 80% of the
+   value.
+3. Keep the whole system understandable by one maintainer.
+4. Use Obsidian's public API and platform capabilities directly.
+5. Minimize code, concepts, files, states, dependencies, and configuration.
+6. Optimize performance only where measurement or a hard constraint justifies
+   it.
+
+Do not trade simplicity for theoretical flexibility, architectural fashion, or
+a future requirement that does not exist.
+
+## The Pareto rule
+
+- Find the smallest end-to-end behavior that delivers most of the user value.
+- Build that path completely before adding variants, knobs, or abstractions.
+- Prefer one excellent common path over many mediocre edge-case paths.
+- Let rare cases fail clearly when supporting them would make the common path
+  substantially harder to understand.
+- Delete or decline features whose maintenance cost exceeds their demonstrated
+  value.
+- Every new concept must earn its place. If removing it barely reduces product
+  value, remove it.
+- A smaller codebase is not merely easier to maintain; it is a core capability
+  because a person or agent can reason about it as one system.
+
+## Repository scope
+
+This directory is Bolovan's standalone git repository, even though it is
+developed in place inside an Obsidian vault. Keep plugin source, tests,
+documentation, and commits inside this repository. Treat the surrounding vault
+as user data: do not inspect or modify personal notes to develop or test the
+plugin.
+
+The vault's portable runtime instructions belong in its configured Bolovan
+brain folder, not in this file. This file is exclusively for coding harnesses
+working on the plugin.
+
+## Project map
+
+- `src/main.ts` — plugin lifecycle, device-local settings, and settings UI
+- `src/bolovan-agent.ts` — harness orchestration and tool loop
+- `src/model-adapter.ts` — remote and local provider adapters
+- `src/brain-store.ts` — portable brain and conversation persistence
+- `src/vault-tools.ts` — the four Obsidian-native vault tools and approvals
+- `src/chat-view.ts`, `src/composer.ts`, `src/context.ts` — user interface and note attachments
+- `src/transcript.ts` — portable transcript semantics
+- `tests/` — unit, integration, and built-plugin smoke tests
+- `docs/adr/` — load-bearing architecture decisions
+
+## Development workflow
+
+- Use Node.js 22.19 or newer.
+- Run `npm test` for a complete verification pass.
+- Run `npm run build` for a typecheck and production bundle.
+- Do not use the surrounding personal vault, live credentials, downloaded
+  models, or provider accounts as test fixtures.
+- Keep generated output and dependency changes intentional. If dependencies
+  change, update and review `package-lock.json` with `package.json`.
 
 Sources:
 
@@ -9,7 +79,13 @@ Sources:
 
 ## Prime directive
 
-Reduce extraneous cognitive load. Prefer boring, direct code whose behavior is visible locally. Optimize for the person debugging this six months from now.
+Reduce extraneous cognitive load. Prefer boring, direct code whose behavior is
+visible locally. Optimize for the person debugging this six months from now.
+
+Familiarity is not simplicity. Review code as if seeing it for the first time.
+If understanding a change requires reconstructing hidden conventions, chasing
+several pass-through layers, or learning a private architectural vocabulary,
+the design is too expensive.
 
 ## Coding rules
 
@@ -24,6 +100,47 @@ Reduce extraneous cognitive load. Prefer boring, direct code whose behavior is v
 - Add dependencies only when they remove more complexity than they introduce.
 - Do not add architectural layers, factories, registries, or indirection without a present need.
 - Write comments for motivation, constraints, or a bird's-eye view. Do not restate what the code says.
+
+## Obsidian first
+
+Bolovan is an Obsidian plugin, not a framework around Obsidian.
+
+- Before writing infrastructure or adding a package, check whether the Obsidian
+  API already provides the capability.
+- Use public Obsidian APIs to their fullest extent, especially `Vault`,
+  `MetadataCache`, `FileManager`, `Workspace`, `SecretStorage`, settings,
+  commands, views, menus, notices, and lifecycle registration.
+- Use Obsidian abstractions instead of Node filesystem APIs, browser-storage
+  substitutes, parallel metadata indexes, or custom lifecycle systems.
+- Do not duplicate state that Obsidian already owns. Derive it from Obsidian at
+  the point of use unless caching has a measured benefit and clear invalidation.
+- Respect Obsidian lifecycle and cleanup facilities. Register resources through
+  the plugin APIs so unloading the plugin leaves nothing behind.
+- Keep domain decisions testable without Obsidian, but do not wrap Obsidian in
+  ceremonial interfaces. Add a boundary only when it isolates meaningful logic
+  or enables a real test seam.
+- Target the public API of the minimum supported Obsidian version. Do not depend
+  on undocumented internals simply to save a few lines.
+
+## Dependency budget
+
+The default answer to a new external dependency is no.
+
+- Treat every dependency as source code Bolovan must understand, ship, update,
+  audit, and debug.
+- Prefer the Obsidian API, Web Platform APIs, and a small local implementation,
+  in that order.
+- Add a runtime dependency only when it supplies an essential capability that
+  would be riskier or materially more complex to implement locally.
+- Do not add a package for convenience helpers, data structures, formatting,
+  state management, dependency injection, or a thin wrapper over a native API.
+- Consider bundle size, transitive dependencies, mobile compatibility,
+  initialization cost, security surface, and long-term maintenance together.
+- A little obvious duplication is cheaper than a shared abstraction or package
+  that couples unrelated behavior.
+- Remove dependencies that no longer justify their cost.
+- Keep provider-specific heavy dependencies behind the narrowest practical
+  boundary and load them only when their provider needs them.
 
 ## Architecture vocabulary
 
