@@ -41,11 +41,16 @@ a future requirement that does not exist.
 
 ## Repository scope
 
-This directory is Bolovan's standalone git repository, even though it is
-developed in place inside an Obsidian vault. Keep plugin source, tests,
-documentation, and commits inside this repository. Treat the surrounding vault
-as user data: do not inspect or modify personal notes to develop or test the
-plugin.
+Bolovan is a standalone git repository. It may be developed in place inside an
+Obsidian vault or cloned independently in any ordinary folder on another
+machine. In-vault development is a convenience, never an architectural
+dependency.
+
+Keep plugin source, tests, documentation, and commits inside this repository.
+The project must build and test without access to SecondBrain, a parent vault,
+personal notes, device-local settings, credentials, globally installed project
+tools, or undocumented files outside the checkout. Treat any surrounding vault
+as user data: do not inspect or modify it to develop or test the plugin.
 
 The vault's portable runtime instructions belong in its configured Bolovan
 brain folder, not in this file. This file is exclusively for coding harnesses
@@ -68,8 +73,12 @@ working on the plugin.
 - Use Node.js 22.19 or newer.
 - Run `npm test` for a complete verification pass.
 - Run `npm run build` for a typecheck and production bundle.
+- Keep setup reproducible from a fresh standalone clone using the documented
+  Node.js version and lockfile.
 - Do not use the surrounding personal vault, live credentials, downloaded
   models, or provider accounts as test fixtures.
+- Use a disposable synthetic or dedicated development vault for runtime
+  integration checks on every machine.
 - Keep generated output and dependency changes intentional. If dependencies
   change, update and review `package-lock.json` with `package.json`.
 
