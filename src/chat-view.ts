@@ -93,6 +93,8 @@ export class BolovanChatView extends ItemView {
     // The context row reflects the note behind the chat; keep it current.
     this.updateContextRow();
     this.registerEvent(this.app.workspace.on("file-open", () => this.updateContextRow()));
+    // Closing a note tab must drop it from the context line.
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.updateContextRow()));
   }
 
   async onClose(): Promise<void> {

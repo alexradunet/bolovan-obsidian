@@ -1,6 +1,7 @@
 import {
   App,
   FileSystemAdapter,
+  MarkdownView,
   Notice,
   Plugin,
   PluginSettingTab,
@@ -123,15 +124,26 @@ export default class BolovanPlugin extends Plugin {
 
   /**
    * The note to attach as context: the file in the active leaf when it is
-   * a note, otherwise the last note opened before the chat took focus.
-   * Non-markdown files are never attached.
+   * a note, otherwise the last note opened before the chat took focus —
+   * but only while that note is still open in some tab; closing it drops
+   * the attachment. Non-markdown files are never attached.
    */
   activeNote(): TFile | undefined {
     const current = this.app.workspace.getActiveFile();
     if (current) {
       return current.extension === "md" ? current : undefined;
     }
-    return this.lastOpenedNote;
+    const candidate = this.lastOpenedNote;
+    if (!candidate || !this.noteStillOpen(candidate)) {
+      return undefined;
+    }
+    return candidate;
+  }
+
+  private noteStillOpen(note: TFile): boolean {
+    return this.app.workspace
+      .getLeavesOfType("markdown")
+      .some((leaf) => leaf.view instanceof MarkdownView && leaf.view.file?.path === note.path);
   }
 
   /** Start the pi process if needed. Idempotent. */
