@@ -11,8 +11,12 @@ const SESSION_NAME = "nazar";
 export interface NazarAgentOptions {
   /** Vault root; the spawned pi process runs with this cwd. */
   cwd: string;
-  /** Absolute path to the pi binary; falls back to PATH lookup. */
-  piPath?: string;
+  /**
+   * Absolute path to the pi binary, or a getter for it; falls back to PATH
+   * lookup and install-location probing. Read at spawn time, so setting
+   * changes apply the next time pi starts.
+   */
+  piPath?: string | (() => string | undefined);
   /** Session file tracked from a previous run; absent means a fresh session. */
   sessionFile?: string;
   /** Extra environment variables, merged over the inherited environment. */
@@ -339,7 +343,10 @@ export class NazarAgent {
   }
 
   private resolveCommand(): string {
-    const command = findPiBinary({ piPath: this.options.piPath });
+    const configured = typeof this.options.piPath === "function"
+      ? this.options.piPath()
+      : this.options.piPath;
+    const command = findPiBinary({ piPath: configured });
     if (!command) {
       throw new Error(
         "pi binary not found. Install pi (https://pi.dev) or set the binary path in Nazar settings. " +
@@ -467,7 +474,7 @@ export class NazarAgent {
   }
 
   private failureDetail(): string {
-    const command = this.resolvedCommand || this.options.piPath || "pi";
+    const command = this.resolvedCommand || "pi";
     const detail = this.stderrTail.trim();
     return detail ? `Tried ${command}. ${detail}` : `Tried ${command}.`;
   }

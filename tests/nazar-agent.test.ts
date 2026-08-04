@@ -189,6 +189,36 @@ describe("NazarAgent over pi RPC", () => {
   );
 
   it(
+    "applies a changed pi path at the next spawn",
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const environment = await createTestEnvironment();
+      let configuredPath: string | undefined = "/nonexistent/nazar-test-pi";
+
+      const agent = await createAgent({
+        cwd: environment.vaultDir,
+        env: agentEnv(environment),
+        piPath: () => configuredPath,
+      });
+
+      await expect(agent.ask("Hello.")).rejects.toThrow(/pi/);
+
+      // The getter now returns nothing: the fallback lookup finds the real
+      // binary, and the respawn picks it up.
+      configuredPath = undefined;
+      const events: NazarEvent[] = [];
+      agent.subscribe((event) => events.push(event));
+      await agent.ask("Summarize today's journal.");
+
+      const text = events
+        .filter((event): event is { type: "text"; delta: string } => event.type === "text")
+        .map((event) => event.delta)
+        .join("");
+      expect(text).toContain("A grounded summary.");
+    },
+  );
+
+  it(
     "falls back to probing install locations when PATH lacks pi",
     { timeout: TEST_TIMEOUT_MS },
     async () => {

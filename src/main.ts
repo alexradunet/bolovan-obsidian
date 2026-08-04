@@ -8,7 +8,7 @@ import {
   TFile,
 } from "obsidian";
 import { NAZAR_CHAT_VIEW, NazarChatView } from "./chat-view";
-import { NazarAgent, type NazarEvent, type NazarUiRequest } from "./nazar-agent";
+import { NazarAgent } from "./nazar-agent";
 
 interface NazarSettings {
   piPath?: string;
@@ -18,13 +18,18 @@ interface NazarSettings {
 export default class NazarPlugin extends Plugin {
   private agentInternal: NazarAgent | undefined;
   private nazarSettings: NazarSettings = {};
-  private agentListeners = new Set<(event: NazarEvent) => void>();
-  private agentForwardUnsubscribe: (() => void) | undefined;
-  private uiResponder: ((request: NazarUiRequest) => void) | undefined;
 
   async onload(): Promise<void> {
     this.nazarSettings = Object.assign({}, (await this.loadData()) as NazarSettings | undefined);
-    this.recreateAgent();
+
+    // One agent for the plugin's life. Settings it might need (pi path,
+    // session lineage) are read lazily, so nothing here recreates it.
+    this.agentInternal = NazarAgent.create({
+      cwd: this.vaultRoot(),
+      piPath: () => this.nazarSettings.piPath,
+      sessionFile: this.nazarSettings.sessionFile,
+      onSessionFile: (sessionFile) => void this.persistSessionFile(sessionFile),
+    });
 
     this.registerView(NAZAR_CHAT_VIEW, (leaf) => new NazarChatView(leaf, this));
 
@@ -88,20 +93,6 @@ export default class NazarPlugin extends Plugin {
     return this.nazarSettings.piPath;
   }
 
-  /** Subscribe to agent events; survives agent re-creation. */
-  subscribeToAgent(listener: (event: NazarEvent) => void): () => void {
-    this.agentListeners.add(listener);
-    return () => {
-      this.agentListeners.delete(listener);
-    };
-  }
-
-  /** Register the dialog surface for extension UI requests (the chat view). */
-  setAgentUiResponder(responder: ((request: NazarUiRequest) => void) | undefined): void {
-    this.uiResponder = responder;
-    this.agentInternal?.setUiResponder(responder);
-  }
-
   /** Start the pi process if needed. Idempotent. */
   async startAgent(): Promise<void> {
     if (!this.agentInternal) {
@@ -112,15 +103,15 @@ export default class NazarPlugin extends Plugin {
     }
   }
 
-  /** Kill the pi process; the view is closed by its owner. */
+  /** Kill the pi process; the agent can start a new one later. */
   stopAgent(): void {
     this.agentInternal?.stop();
   }
 
+  /** Saved only; a changed path applies the next time pi starts. */
   async setPiPath(piPath: string): Promise<void> {
     this.nazarSettings.piPath = piPath || undefined;
     await this.saveData(this.nazarSettings);
-    this.recreateAgent();
   }
 
   async openChatView(): Promise<void> {
@@ -145,26 +136,6 @@ export default class NazarPlugin extends Plugin {
       return;
     }
     await this.openChatView();
-  }
-
-  private recreateAgent(): void {
-    this.agentInternal?.dispose();
-    this.agentForwardUnsubscribe?.();
-
-    const agent = NazarAgent.create({
-      cwd: this.vaultRoot(),
-      piPath: this.nazarSettings.piPath,
-      sessionFile: this.nazarSettings.sessionFile,
-      onSessionFile: (sessionFile) => void this.persistSessionFile(sessionFile),
-    });
-    this.agentInternal = agent;
-    agent.setUiResponder(this.uiResponder);
-
-    this.agentForwardUnsubscribe = agent.subscribe((event) => {
-      for (const listener of this.agentListeners) {
-        listener(event);
-      }
-    });
   }
 
   private async startNewConversation(): Promise<void> {
@@ -228,7 +199,7 @@ class NazarSettingTab extends PluginSettingTab {
     new Setting(this.containerEl)
       .setName("pi binary path")
       .setDesc(
-        "Absolute path to the pi executable. Leave empty to search PATH and the common pi install locations.",
+        "Absolute path to the pi executable. Leave empty to search PATH and the common pi install locations. Applies the next time pi starts.",
       )
       .addText((text) => {
         text

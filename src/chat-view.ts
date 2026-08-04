@@ -53,8 +53,13 @@ export class NazarChatView extends ItemView {
     this.unsubscribeTranscript = this.transcript.subscribe((item) =>
       this.onTranscriptChange(item),
     );
-    this.unsubscribeAgent = this.plugin.subscribeToAgent((event) => this.onAgentEvent(event));
-    this.plugin.setAgentUiResponder((request) => this.showDialog(request));
+    // The agent lives for the plugin's lifetime, so the view attaches to it
+    // directly; nothing swaps it out from under us.
+    const agent = this.plugin.agent;
+    if (agent) {
+      this.unsubscribeAgent = agent.subscribe((event) => this.onAgentEvent(event));
+      agent.setUiResponder((request) => this.showDialog(request));
+    }
 
     try {
       await this.plugin.startAgent();
@@ -70,7 +75,7 @@ export class NazarChatView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    this.plugin.setAgentUiResponder(undefined);
+    this.plugin.agent?.setUiResponder(undefined);
     this.unsubscribeAgent?.();
     this.unsubscribeAgent = undefined;
     this.unsubscribeTranscript?.();
