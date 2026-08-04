@@ -7,7 +7,11 @@ import {
   type NoteCandidate,
 } from "./context";
 
-const LINK_CLASS = "bolovan-chat__mention-link";
+const MENTION_CLASS = "bolovan-chat__mention";
+const CHIP_STYLE_CLASS = "bolovan-chat__mention--chip";
+const LINK_STYLE_CLASS = "bolovan-chat__mention--link";
+
+export type MentionStyle = "chip" | "link";
 
 export interface ComposerOptions {
   /** Where the editable element is built. */
@@ -16,6 +20,8 @@ export interface ComposerOptions {
   pickerHost: HTMLElement;
   /** Mention candidates, typically all vault notes newest-first. */
   getNotes: () => NoteCandidate[];
+  /** How collapsed mentions render: chip pills or Obsidian-style links. */
+  getMentionStyle: () => MentionStyle;
   /** Called on Enter without Shift. */
   onSend: () => void;
 }
@@ -122,6 +128,24 @@ export class Composer {
     this.focus();
   }
 
+  /** Rebuild every mention span; used when the display style changes. */
+  restyle(): void {
+    const caret = this.caretOffset();
+    const mentions = Array.from(this.el.querySelectorAll(`.${MENTION_CLASS}`));
+    for (const mention of mentions) {
+      const element = mention as HTMLElement;
+      element.replaceWith(this.el.ownerDocument.createTextNode(linkSerialized(element)));
+    }
+    if (caret >= 0) {
+      const position = this.locate(caret);
+      const range = this.el.ownerDocument.createRange();
+      range.setStart(position.node, position.offset);
+      range.collapse(true);
+      this.setSelection(range);
+    }
+    this.refresh();
+  }
+
   // ----- editor events -----------------------------------------------------
 
   /** Decorate finished mentions and sync the picker after any change. */
@@ -137,9 +161,9 @@ export class Composer {
 
   private onClick(event: MouseEvent): void {
     const target = event.target as HTMLElement;
-    const link = target.closest(`.${LINK_CLASS}`);
+    const link = target.closest(`.${MENTION_CLASS}`);
     if (link && this.el.contains(link)) {
-      this.unwrapLink(link as HTMLElement);
+      this.unwrapLink(link as HTMLElement, event);
       return;
     }
     this.refresh();
@@ -182,15 +206,37 @@ export class Composer {
   // ----- links ---------------------------------------------------------------
 
   /** Clicking a link expands it so its label can be edited as plain text. */
-  private unwrapLink(link: HTMLElement): void {
+  private unwrapLink(link: HTMLElement, event: MouseEvent): void {
     const label = link.dataset.label ?? link.textContent ?? "";
     const textNode = this.el.ownerDocument.createTextNode(`[[${label}]]`);
     link.replaceWith(textNode);
+
+    // Place the caret where the user clicked, like editing a wikilink in
+    // Obsidian's live preview; fall back to the end of the label.
+    const clicked = this.positionAtPoint(textNode, event);
     const range = this.el.ownerDocument.createRange();
-    range.setStart(textNode, textNode.nodeValue?.length ?? 0);
+    if (clicked) {
+      range.setStart(clicked.node, clicked.offset);
+    } else {
+      range.setStart(textNode, textNode.nodeValue?.length ?? 0);
+    }
     range.collapse(true);
     this.setSelection(range);
     this.picker.update();
+  }
+
+  private positionAtPoint(
+    textNode: Text,
+    event: MouseEvent,
+  ): { node: Node; offset: number } | undefined {
+    const doc = this.el.ownerDocument as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    };
+    const pointRange = doc.caretRangeFromPoint?.(event.clientX, event.clientY);
+    if (pointRange && pointRange.startContainer === textNode) {
+      return { node: textNode, offset: pointRange.startOffset };
+    }
+    return undefined;
   }
 
   /**
@@ -255,7 +301,9 @@ export class Composer {
 
   private makeLink(label: string): HTMLElement {
     const link = this.el.ownerDocument.createElement("span");
-    link.className = LINK_CLASS;
+    const style = this.options.getMentionStyle();
+    const styleClass = style === "chip" ? CHIP_STYLE_CLASS : LINK_STYLE_CLASS;
+    link.className = `${MENTION_CLASS} ${styleClass}`;
     link.setAttribute("contenteditable", "false");
     link.dataset.label = label;
     link.textContent = linkDisplay(label);
@@ -492,7 +540,7 @@ function folderOf(path: string): string {
 }
 
 function isLinkElement(node: Node): node is HTMLElement {
-  return node instanceof HTMLElement && node.classList.contains(LINK_CLASS);
+  return node instanceof HTMLElement && node.classList.contains(MENTION_CLASS);
 }
 
 function linkSerialized(link: HTMLElement): string {

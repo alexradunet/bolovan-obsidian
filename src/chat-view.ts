@@ -1,4 +1,4 @@
-import { App, Component, FuzzySuggestModal, ItemView, MarkdownRenderer, Modal, setIcon, TFile, WorkspaceLeaf } from "obsidian";
+import { App, Component, FuzzySuggestModal, ItemView, MarkdownRenderer, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import type BolovanPlugin from "./main";
 import type { BolovanEvent, BolovanUiRequest } from "./bolovan-agent";
 import { Composer } from "./composer";
@@ -37,6 +37,7 @@ export class BolovanChatView extends ItemView {
   private composer!: Composer;
   private sendButtonEl!: HTMLButtonElement;
   private activeNoteToggleEl!: HTMLButtonElement;
+  private mentionStyleToggleEl!: HTMLButtonElement;
   private newSessionButtonEl!: HTMLButtonElement;
   private sessionSelectEl!: HTMLSelectElement;
   private modelSelectEl!: HTMLSelectElement;
@@ -154,6 +155,7 @@ export class BolovanChatView extends ItemView {
       editorHost: composer,
       pickerHost: composerStage,
       getNotes: () => this.noteCandidates(),
+      getMentionStyle: () => (this.plugin.mentionChips ? "chip" : "link"),
       onSend: () => void this.send(),
     });
 
@@ -180,6 +182,15 @@ export class BolovanChatView extends ItemView {
     this.activeNoteToggleEl.addEventListener("click", () => {
       void this.toggleActiveNoteAttachment();
     });
+
+    this.mentionStyleToggleEl = controls.createEl("button", {
+      cls: "clickable-icon bolovan-chat__mention-style-toggle",
+    });
+    setIcon(this.mentionStyleToggleEl, "tags");
+    this.mentionStyleToggleEl.addEventListener("click", () => {
+      void this.toggleMentionStyle();
+    });
+    this.updateMentionStyleToggle();
 
     this.modelSelectEl = controls.createEl("select", {
       cls: "bolovan-chat__models",
@@ -308,10 +319,14 @@ export class BolovanChatView extends ItemView {
     if (item.kind === "user") {
       el.empty();
       if (item.attachments?.length) {
-        const chips = el.createDiv({ cls: "bolovan-chat__attachments" });
+        const attachments = el.createDiv({ cls: "bolovan-chat__attachments" });
         for (const path of item.attachments) {
-          const chip = chips.createSpan({ cls: "bolovan-chat__attachment", text: basenameOfPath(path) });
-          chip.setAttr("title", path);
+          const link = attachments.createSpan({
+            cls: "bolovan-chat__attachment",
+            text: path.split("/").pop()?.replace(/\.md$/, "") ?? path,
+          });
+          link.setAttr("title", path);
+          link.addEventListener("click", () => void this.openAttachment(path));
         }
       }
       el.createDiv({ text: item.text });
@@ -473,6 +488,46 @@ export class BolovanChatView extends ItemView {
   private async toggleActiveNoteAttachment(): Promise<void> {
     await this.plugin.setIncludeActiveNote(!this.plugin.includeActiveNote);
     this.updateContextRow();
+  }
+
+  private async toggleMentionStyle(): Promise<void> {
+    await this.plugin.setMentionChips(!this.plugin.mentionChips);
+    this.composer.restyle();
+    this.updateMentionStyleToggle();
+  }
+
+  private updateMentionStyleToggle(): void {
+    const chips = this.plugin.mentionChips;
+    this.mentionStyleToggleEl.toggleClass("is-on", chips);
+    this.mentionStyleToggleEl.setAttr(
+      "aria-label",
+      chips ? "Mentions show as chips" : "Mentions show as links",
+    );
+    this.mentionStyleToggleEl.setAttr(
+      "title",
+      chips
+        ? "Mentions show as chips — click to show as links"
+        : "Mentions show as links — click to show as chips",
+    );
+  }
+
+  /** Open an attached note from the transcript. */
+  private async openAttachment(path: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      new Notice(`This note no longer exists: ${path}`);
+      return;
+    }
+    try {
+      // Never replace the chat surface itself.
+      const leaf =
+        this.app.workspace.activeLeaf === this.leaf
+          ? this.app.workspace.getLeaf("tab")
+          : this.app.workspace.getLeaf(false);
+      await leaf.openFile(file);
+    } catch (error) {
+      new Notice(`Could not open ${path}: ${describeError(error)}`);
+    }
   }
 
   /** Show what travels with the next message: the active note, if enabled. */
@@ -677,10 +732,6 @@ export class BolovanChatView extends ItemView {
 
 function formatTokens(tokens: number): string {
   return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
-}
-
-function basenameOfPath(path: string): string {
-  return path.split("/").pop() ?? path;
 }
 
 function describeError(error: unknown): string {

@@ -314,13 +314,39 @@
   pointer-events: none;
 }
 
-.bolovan-chat__mention-link {
-  color: var(--link-color, var(--text-accent));
+.bolovan-chat__mention {
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.bolovan-chat__mention-link:hover {
+.bolovan-chat__mention--chip {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  padding: 0 var(--size-4-1);
+}
+
+.bolovan-chat__mention--chip::before {
+  content: "\1F4CE ";
+}
+
+.bolovan-chat__mention--chip:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.bolovan-chat__mention--link {
+  color: var(--link-color, var(--text-accent));
+}
+
+.bolovan-chat__mention--link:hover {
   text-decoration: underline;
+}
+
+.bolovan-chat__mention-style-toggle.is-on {
+  color: var(--text-accent);
 }
 
 .bolovan-chat__context {
@@ -413,20 +439,16 @@
 }
 
 .bolovan-chat__attachment {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
+  color: var(--link-color, var(--text-accent));
+  cursor: pointer;
   max-width: 100%;
   overflow: hidden;
-  padding: 0 var(--size-4-2);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.bolovan-chat__attachment::before {
-  content: "\1F4CE ";
+.bolovan-chat__attachment:hover {
+  text-decoration: underline;
 }
 
 .bolovan-panel__composer .bolovan-chat__editor:focus {
