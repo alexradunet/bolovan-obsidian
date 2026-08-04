@@ -139,6 +139,19 @@ export class Transcript {
     }));
   }
 
+  /**
+   * A run started from this surface. Opens an empty assistant block as a
+   * visible "thinking" placeholder; the first text delta grows into it. If
+   * a block is already streaming, nothing happens.
+   */
+  runStarted(): void {
+    const open = this.openAssistantId ? this.get(this.openAssistantId) : undefined;
+    if (open && open.kind === "assistant" && !open.finalized) {
+      return;
+    }
+    this.openAssistant();
+  }
+
   /** A local notice: failures and other surface-level messages. */
   note(text: string): void {
     this.finalizeOpenAssistant();

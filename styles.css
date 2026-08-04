@@ -141,6 +141,10 @@
   width: 0.42rem;
 }
 
+.bolovan-message--assistant.is-silent {
+  display: none;
+}
+
 .bolovan-message--user {
   align-self: flex-end;
   background: var(--background-secondary-alt);

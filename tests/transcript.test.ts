@@ -259,6 +259,50 @@ describe("Transcript continuity and surface messages", () => {
     expect(changes.map((item) => item.kind)).toEqual(["user", "system"]);
   });
 
+  it("runStarted opens a thinking placeholder the answer grows into", () => {
+    const transcript = new Transcript();
+
+    transcript.say("question");
+    transcript.runStarted();
+
+    expect(transcript.all()).toHaveLength(2);
+    expect(transcript.all()[1]).toMatchObject({
+      kind: "assistant",
+      markdown: "",
+      finalized: false,
+    });
+
+    applyAll(transcript, [
+      { type: "text", delta: "Answer" },
+      { type: "settled" },
+    ]);
+
+    expect(transcript.all()).toHaveLength(2);
+    expect(transcript.all()[1]).toMatchObject({ markdown: "Answer", finalized: true });
+  });
+
+  it("runStarted does not duplicate a block that is already streaming", () => {
+    const transcript = new Transcript();
+    transcript.apply({ type: "text", delta: "streaming" });
+
+    transcript.runStarted();
+
+    expect(transcript.all()).toHaveLength(1);
+  });
+
+  it("settled finalizes an empty placeholder so the surface can hide it", () => {
+    const transcript = new Transcript();
+    transcript.runStarted();
+
+    transcript.apply({ type: "settled" });
+
+    expect(transcript.all()[0]).toMatchObject({
+      kind: "assistant",
+      markdown: "",
+      finalized: true,
+    });
+  });
+
   it("records attached notes on user items and omits them when absent", () => {
     const transcript = new Transcript();
 

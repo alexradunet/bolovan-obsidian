@@ -15,6 +15,7 @@ import { Transcript, type TranscriptItem } from "./transcript";
 export const BOLOVAN_CHAT_VIEW = "bolovan-chat-view";
 
 const RENDER_THROTTLE_MS = 120;
+const THINKING_MARKDOWN = "*Thinking…*";
 
 /**
  * Sidebar chat over the long-lived pi RPC process. The view is a thin
@@ -44,6 +45,7 @@ export class BolovanChatView extends ItemView {
   private statusEl!: HTMLElement;
   private statsEl!: HTMLElement;
   private pinnedToBottom = true;
+  private hasRunActivity = false;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -290,8 +292,14 @@ export class BolovanChatView extends ItemView {
     if (item.kind === "assistant") {
       this.assistantPaintScheduled.delete(item.id);
       el.empty();
+      // A thinking placeholder that never received text shows nothing.
+      const silent = item.finalized && !item.markdown.trim();
+      el.toggleClass("is-silent", silent);
       el.toggleClass("is-streaming", !item.finalized);
-      void MarkdownRenderer.render(this.app, item.markdown || "…", el, "", this.component)
+      if (silent) {
+        return;
+      }
+      void MarkdownRenderer.render(this.app, item.markdown || THINKING_MARKDOWN, el, "", this.component)
         .then(() => this.scrollToBottom(false));
       return;
     }
@@ -341,7 +349,7 @@ export class BolovanChatView extends ItemView {
       }
       el.empty();
       el.addClass("is-streaming");
-      void MarkdownRenderer.render(this.app, item.markdown || "…", el, "", this.component)
+      void MarkdownRenderer.render(this.app, item.markdown || THINKING_MARKDOWN, el, "", this.component)
         .then(() => this.scrollToBottom(false));
     }, RENDER_THROTTLE_MS);
   }
@@ -356,6 +364,7 @@ export class BolovanChatView extends ItemView {
 
     if (event.type === "settled") {
       this.transcript.apply(event);
+      this.hasRunActivity = false;
       this.setRunning(false);
       this.scrollToBottom(true);
       // Runs can also be triggered from outside the view (plugin commands);
@@ -367,11 +376,13 @@ export class BolovanChatView extends ItemView {
 
     if (event.type === "exited") {
       this.transcript.apply(event);
+      this.hasRunActivity = false;
       this.setRunning(false);
       return;
     }
 
-    if (event.type === "text") {
+    if (event.type === "text" || event.type === "tool-start") {
+      this.hasRunActivity = true;
       this.setRunning(true);
     }
     this.transcript.apply(event);
@@ -381,7 +392,8 @@ export class BolovanChatView extends ItemView {
     this.rootEl.toggleClass("is-running", running);
     this.sendButtonEl.setText(running ? "Stop" : "Send");
     this.sendButtonEl.setAttr("aria-label", running ? "Stop response" : "Send message");
-    this.statusEl.setText(running ? "Working…" : "Waiting for your input");
+    const runningText = this.hasRunActivity ? "Working…" : "Thinking…";
+    this.statusEl.setText(running ? runningText : "Waiting for your input");
     this.sessionSelectEl.disabled = running;
     this.newSessionButtonEl.disabled = running;
   }
@@ -400,6 +412,16 @@ export class BolovanChatView extends ItemView {
     for (const warning of warnings) {
       this.transcript.note(warning);
     }
+
+    // Live feedback from the moment of sending: the run state flips now,
+    // not when the first token arrives, and a thinking placeholder opens in
+    // the transcript.
+    const alreadyRunning = this.plugin.agent?.status().isRunning ?? false;
+    if (!alreadyRunning) {
+      this.hasRunActivity = false;
+      this.setRunning(true);
+      this.transcript.runStarted();
+    }
     this.scrollToBottom(true);
 
     try {
@@ -417,6 +439,7 @@ export class BolovanChatView extends ItemView {
       }
     } catch (error) {
       this.transcript.note(describeError(error));
+      this.setRunning(false);
     }
   }
 
