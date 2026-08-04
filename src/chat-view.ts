@@ -18,7 +18,7 @@ const RENDER_THROTTLE_MS = 120;
 const THINKING_MARKDOWN = "*Thinking…*";
 
 /**
- * Sidebar chat over the long-lived pi RPC process. The view is a thin
+ * Sidebar chat over Bolovan's Obsidian-native harness. The view is a thin
  * adapter over the Transcript: it paints items keyed by id and owns nothing
  * but DOM concerns — throttling, scrolling, and dialogs.
  */
@@ -40,8 +40,6 @@ export class BolovanChatView extends ItemView {
   private activeNoteToggleEl!: HTMLButtonElement;
   private newSessionButtonEl!: HTMLButtonElement;
   private sessionSelectEl!: HTMLSelectElement;
-  private modelSelectEl!: HTMLSelectElement;
-  private thinkingSelectEl!: HTMLSelectElement;
   private statusEl!: HTMLElement;
   private statsEl!: HTMLElement;
   private pinnedToBottom = true;
@@ -72,7 +70,7 @@ export class BolovanChatView extends ItemView {
     this.unsubscribeTranscript = this.transcript.subscribe((item) =>
       this.onTranscriptChange(item),
     );
-    // The agent lives for the plugin's lifetime, so the view attaches to it
+    // The harness lives for the plugin's lifetime, so the view attaches to it
     // directly; nothing swaps it out from under us.
     const agent = this.plugin.agent;
     if (agent) {
@@ -83,7 +81,6 @@ export class BolovanChatView extends ItemView {
     try {
       await this.plugin.startAgent();
       await Promise.all([
-        this.populateModelControls(),
         this.populateSessionPicker(),
         this.loadTranscript(),
         this.refreshStats(),
@@ -184,17 +181,7 @@ export class BolovanChatView extends ItemView {
       void this.toggleActiveNoteAttachment();
     });
 
-    this.modelSelectEl = controls.createEl("select", {
-      cls: "bolovan-chat__models",
-      attr: { "aria-label": "Model", title: "Model" },
-    });
-    this.thinkingSelectEl = controls.createEl("select", {
-      cls: "bolovan-chat__thinking",
-      attr: { "aria-label": "Thinking effort", title: "Thinking effort" },
-    });
     this.statsEl = controls.createSpan({ cls: "bolovan-chat__stats" });
-    this.modelSelectEl.addEventListener("change", () => void this.applyModelSelection());
-    this.thinkingSelectEl.addEventListener("change", () => void this.applyThinkingSelection());
 
     this.sendButtonEl = controls.createEl("button", { cls: "mod-cta", text: "Send" });
     this.sendButtonEl.addEventListener("click", () => void this.onSendButton());
@@ -611,7 +598,7 @@ export class BolovanChatView extends ItemView {
     await this.send();
   }
 
-  /** Extension dialog surface: approval gates, prompts, selections. */
+  /** Harness dialog surface: exact change approvals and future prompts. */
   private showDialog(request: BolovanUiRequest): void {
     const agent = this.plugin.agent;
     if (!agent) {
@@ -624,60 +611,6 @@ export class BolovanChatView extends ItemView {
 
   // ----- controls ----------------------------------------------------------
 
-  private async populateModelControls(): Promise<void> {
-    const agent = this.plugin.agent;
-    if (!agent) {
-      return;
-    }
-
-    const [state, models, levels] = await Promise.all([
-      agent.getState(),
-      agent.listModels(),
-      agent.listThinkingLevels(),
-    ]);
-
-    this.modelSelectEl.empty();
-    for (const model of models) {
-      this.modelSelectEl.createEl("option", {
-        value: `${model.provider}/${model.id}`,
-        text: model.name,
-      });
-    }
-    this.modelSelectEl.value = `${state.provider}/${state.modelId}`;
-
-    this.thinkingSelectEl.empty();
-    for (const level of levels) {
-      this.thinkingSelectEl.createEl("option", { value: level, text: level });
-    }
-    this.thinkingSelectEl.value = state.thinkingLevel;
-  }
-
-  private async applyModelSelection(): Promise<void> {
-    const agent = this.plugin.agent;
-    const [provider, modelId] = this.modelSelectEl.value.split("/");
-    if (!agent || !provider || !modelId) {
-      return;
-    }
-    try {
-      await agent.setModel(provider, modelId);
-      await Promise.all([this.populateModelControls(), this.refreshStats()]);
-    } catch (error) {
-      this.transcript.note(describeError(error));
-    }
-  }
-
-  private async applyThinkingSelection(): Promise<void> {
-    const agent = this.plugin.agent;
-    if (!agent) {
-      return;
-    }
-    try {
-      await agent.setThinkingLevel(this.thinkingSelectEl.value);
-    } catch (error) {
-      this.transcript.note(describeError(error));
-    }
-  }
-
   private async populateSessionPicker(): Promise<void> {
     const agent = this.plugin.agent;
     if (!agent) {
@@ -685,7 +618,7 @@ export class BolovanChatView extends ItemView {
     }
 
     const sessions = agent.listSessions();
-    const current = agent.status().sessionFile;
+    const current = agent.status().activeBranch;
 
     this.sessionSelectEl.empty();
     for (const session of sessions) {
@@ -705,12 +638,12 @@ export class BolovanChatView extends ItemView {
   private async switchToSelectedSession(): Promise<void> {
     const agent = this.plugin.agent;
     const target = this.sessionSelectEl.value;
-    if (!agent || !target || target === agent.status().sessionFile) {
+    if (!agent || !target || target === agent.status().activeBranch) {
       return;
     }
     try {
       await agent.switchSession(target);
-      await Promise.all([this.loadTranscript(), this.refreshStats(), this.populateModelControls()]);
+      await Promise.all([this.loadTranscript(), this.refreshStats()]);
     } catch (error) {
       this.transcript.note(describeError(error));
     }
@@ -823,8 +756,7 @@ class NoteAttachModal extends FuzzySuggestModal<TFile> {
 }
 
 /**
- * Obsidian dialog answering a pi extension UI request. Esc or close counts
- * as cancellation, which extensions receive as a declined dialog.
+ * Obsidian dialog for harness requests. Esc or close counts as cancellation.
  */
 class BolovanDialogModal extends Modal {
   constructor(
@@ -855,8 +787,8 @@ class BolovanDialogModal extends Modal {
   }
 
   onClose(): void {
-    // The modal can close after a button already answered; answering twice
-    // is harmless because pi ignores responses for settled requests.
+    // The modal can close after a button already answered; settled request
+    // ids are ignored by the harness.
     this.respond({ cancelled: true });
   }
 

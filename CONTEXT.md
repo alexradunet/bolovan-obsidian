@@ -1,33 +1,14 @@
 # Bolovan — domain model
 
-Glossary for the Bolovan plugin. Architecture vocabulary (module, interface,
-seam, adapter, depth, locality, leverage) lives in the codebase-design skill;
-these are the domain nouns.
-
-- **Run** — one user-triggered agent execution: prompt in, streamed response,
-  settle. One run at a time.
-- **Session** — a pi session file: the durable record of a conversation.
-- **Session lineage** — the chain of sessions Bolovan tracks; the plugin never
-  resumes another lineage implicitly.
-- **Tracked session** — the session file currently owned by Bolovan's lineage,
-  persisted in plugin data.
-- **Handshake** — the startup `get_state` exchange proving the pi process is
-  alive and reporting its model.
-- **Parity** — the plugin agent has the same capabilities as `pi` in a
-  terminal in the vault. See ADR-0001.
-- **Gate** — the vault's write-approval extension
-  (`06-System/Pi/extensions/write-approval.ts`); policy loaded by every pi
-  surface.
-- **Dialog transport** — Bolovan's rendering of pi extension UI requests as
-  Obsidian modals, answered over the RPC dialog protocol.
-- **Transcript** — the ordered on-screen record of a conversation, built
-  either from session history or from a live run. Items only ever append;
-  nothing reorders or disappears.
-- **Item** — one block of a transcript: `user`, `assistant` (a markdown text
-  block, possibly still streaming), `tool` (a call with running/done/error
-  status), or `system` (notices, failures, ran-commands).
-- **Attachment** — a vault note whose contents are inlined into an outgoing
-  prompt. The open note attaches automatically (toggleable); more come from
-  mentions.
-- **Mention** — a `[[note]]` wikilink typed in the composer; resolved to a
-  note and turned into an attachment at send time.
+- **Run** — one user-triggered harness execution. One run may contain several model/tool rounds; only one run is active at a time.
+- **Harness** — the orchestration boundary that owns model calls, tool rounds, approval, cancellation, and persistence.
+- **Provider** — a device-local inference configuration: OpenAI, an OpenAI-compatible endpoint, or local WebGPU.
+- **Model adapter** — the normalized completion interface hiding provider request and response details.
+- **Vault tool** — one of `vault_read`, `vault_search`, `vault_list`, or `vault_change`; all operate through Obsidian APIs.
+- **Prepared change** — an immutable exact preview plus a commit closure bound to the source hash.
+- **Brain** — the visible configurable vault folder identified by `bolovan-brain.json`.
+- **Conversation** — a logical sequence of user, assistant, and tool messages.
+- **Branch** — one device-owned conversation file. Writing a foreign branch first creates a local fork, so sync conflicts are preserved rather than guessed together.
+- **Transcript** — the ordered on-screen rendering of a conversation. Items append and never reorder.
+- **Attachment** — a note whose contents are inlined into one outgoing user message.
+- **Mention** — a `[[note]]` link in the composer that resolves to an attachment at send time.

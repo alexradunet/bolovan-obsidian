@@ -49,15 +49,15 @@ Apply these checks:
 
 These are requirements, not suggestions:
 
-- The private alpha targets Obsidian Desktop on Linux x86_64.
-- Bolovan runs [pi](https://pi.dev) in RPC mode as a child process. The plugin agent has the same capabilities as `pi` run interactively in the vault: same tools, same config discovery, same model layer, same trust machinery. See `docs/adr/0001-rpc-parity.md`.
-- Runs are user-triggered. One run at a time. There is no resident agent process between runs, except while the chat view is open: the sidebar chat keeps the pi process alive while the view is open and kills it when the view closes.
-- There is one active Bolovan conversation. The chat view shows it and plugin commands (summarize, stop, new conversation) act on the same session.
-- Inference, model selection, tools, extensions, skills, and project trust are delegated to pi. Bolovan owns none of them.
-- Conversations persist in pi's shared session store. Bolovan tracks its own session lineage and never resumes another session implicitly.
-- The plugin renders every tool execution visibly and provides cancel. Approval policy is not plugin behavior: the plugin is the dialog surface for pi extension UI requests, and the vault's write-approval gate lives in the vault's `.pi/extensions/`, loaded by TUI and plugin alike.
-- Failures stop visibly. Missing `pi`, handshake failure, and protocol errors surface the binary tried and pi's stderr tail without changing files.
-- The plugin binary lookup is an explicit path setting, then PATH, then the stable pi install locations; desktop sessions often do not inherit the shell PATH. The path is read at process spawn time, so setting changes apply the next time pi starts. Nothing else.
+- Target Obsidian 1.13.4 or newer on every supported desktop and mobile platform. Do not import Node built-ins or depend on native processes.
+- Bolovan owns its harness. Providers vary behind `ModelAdapter`; Vault behavior varies behind the four-tool adapter. See `docs/adr/0001-native-cross-platform-harness.md`.
+- Supported providers are OpenAI, advanced OpenAI-compatible endpoints, and local Transformers.js WebGPU. Local inference has no CPU/WASM fallback.
+- Runs are user-triggered and single-flight. Completed-response rendering is the portable guarantee; streaming is optional enhancement behavior.
+- Vault access uses only Obsidian `Vault`, `MetadataCache`, and `FileManager` APIs. Stable exposes only `vault_read`, `vault_search`, `vault_list`, and `vault_change`.
+- Every mutation requires an exact preview and explicit approval. The commit rechecks the source hash; stale approvals write nothing.
+- The portable brain is a visible configurable vault folder identified by `bolovan-brain.json`. Secrets, provider profiles, caches, device identity, and approval state stay device-local.
+- Conversation files are device-owned branches. Never append to another device's branch and never automatically merge sync conflicts.
+- `web_search`, shell access, raw filesystem access, external brain folders, and plugin self-modification are outside the stable milestone.
 
 ## Change discipline
 
@@ -71,8 +71,7 @@ These are requirements, not suggestions:
 
 ## Verification
 
-- Test session lineage tracking, streaming, cancellation, visible failure paths, and the long-lived process (multiple runs over one connection).
-- Transcript semantics live in one module (`src/transcript.ts`) and are tested through its interface without Obsidian or pi.
-- Integration tests spawn a real `pi` process against a synthetic vault and an isolated pi config dir with a fake model server. Never require a real personal vault.
-- Tests should survive internal refactors when the module interface and behavior remain unchanged.
-- Tests must not read or modify the user's vault or the user's real pi config.
+- Test provider normalization, tool-loop stopping, cancellation, exact approvals, stale-write rejection, and device-branch forking through module interfaces.
+- Transcript semantics live in `src/transcript.ts` and are tested without an Obsidian runtime.
+- Integration tests use synthetic in-memory adapters and never a personal vault, credential, provider account, or downloaded model.
+- Tests should survive internal refactors when module interfaces and behavior remain unchanged.

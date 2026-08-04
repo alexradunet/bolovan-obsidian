@@ -1,57 +1,94 @@
 import {
   App,
-  FileSystemAdapter,
   MarkdownView,
   Notice,
+  Platform,
   Plugin,
   PluginSettingTab,
+  requestUrl,
   Setting,
   TFile,
 } from "obsidian";
 import { BOLOVAN_CHAT_VIEW, BolovanChatView } from "./chat-view";
 import { BolovanAgent } from "./bolovan-agent";
+import type { ProviderConfig, ProviderKind, ThinkingEffort } from "./model-adapter";
+
+const API_KEY_SECRET = "bolovan-openai-api-key";
+const OPENAI_MODELS = [
+  { id: "gpt-5.6-sol", name: "GPT-5.6 Sol — highest capability" },
+  { id: "gpt-5.6-terra", name: "GPT-5.6 Terra — balanced" },
+  { id: "gpt-5.6-luna", name: "GPT-5.6 Luna — fastest and lowest cost" },
+] as const;
+const LOCAL_WEBGPU_MODEL = {
+  id: "onnx-community/Qwen3.5-0.8B-ONNX-OPT",
+  name: "Qwen 3.5 0.8B OPT — local WebGPU",
+} as const;
+const THINKING_LEVELS: ReadonlyArray<{ id: ThinkingEffort; name: string }> = [
+  { id: "none", name: "None — lowest latency" },
+  { id: "low", name: "Low" },
+  { id: "medium", name: "Medium — balanced" },
+  { id: "high", name: "High" },
+  { id: "xhigh", name: "Extra high" },
+  { id: "max", name: "Maximum — highest quality and latency" },
+];
 
 interface BolovanSettings {
-  piPath?: string;
-  sessionFile?: string;
-  includeActiveNote?: boolean;
+  providerKind: ProviderKind;
+  model: string;
+  thinkingEffort: ThinkingEffort;
+  baseUrl: string;
+  brainFolder: string;
+  deviceId: string;
+  activeBranch?: string;
+  includeActiveNote: boolean;
 }
+
+const DEFAULT_SETTINGS: BolovanSettings = {
+  providerKind: "openai",
+  model: "gpt-5.6-terra",
+  thinkingEffort: "medium",
+  baseUrl: "https://api.openai.com/v1",
+  brainFolder: "system/Bolovan",
+  deviceId: "",
+  includeActiveNote: true,
+};
 
 export default class BolovanPlugin extends Plugin {
   private agentInternal: BolovanAgent | undefined;
-  private bolovanSettings: BolovanSettings = {};
+  private bolovanSettings: BolovanSettings = { ...DEFAULT_SETTINGS };
   private lastOpenedNote: TFile | undefined;
 
   async onload(): Promise<void> {
-    this.bolovanSettings = Object.assign({}, (await this.loadData()) as BolovanSettings | undefined);
+    const loaded = (await this.loadData()) as Partial<BolovanSettings> | undefined;
+    this.bolovanSettings = { ...DEFAULT_SETTINGS, ...knownSettings(loaded) };
+    if (!this.bolovanSettings.deviceId) {
+      this.bolovanSettings.deviceId = crypto.randomUUID();
+      await this.saveSettings();
+    }
 
-    // One agent for the plugin's life. Settings it might need (pi path,
-    // session lineage) are read lazily, so nothing here recreates it.
     this.agentInternal = BolovanAgent.create({
-      cwd: this.vaultRoot(),
-      piPath: () => this.bolovanSettings.piPath,
-      sessionFile: this.bolovanSettings.sessionFile,
-      onSessionFile: (sessionFile) => void this.persistSessionFile(sessionFile),
+      app: this.app,
+      brainFolder: this.bolovanSettings.brainFolder,
+      deviceId: this.bolovanSettings.deviceId,
+      activeBranch: this.bolovanSettings.activeBranch,
+      provider: () => this.providerConfig(),
+      requestTransport: (request) => requestUrl(request),
+      onActiveBranch: (path) => {
+        this.bolovanSettings.activeBranch = path || undefined;
+        void this.saveSettings();
+      },
+      onBrainFolder: (folder) => {
+        if (folder !== this.bolovanSettings.brainFolder) {
+          this.bolovanSettings.brainFolder = folder;
+          void this.saveSettings();
+        }
+      },
     });
 
     this.registerView(BOLOVAN_CHAT_VIEW, (leaf) => new BolovanChatView(leaf, this));
-
-    this.addRibbonIcon("message-square", "Open Bolovan chat", () => {
-      void this.toggleChatView();
-    });
-
-    this.addCommand({
-      id: "open-chat",
-      name: "Open Bolovan chat",
-      callback: () => void this.toggleChatView(),
-    });
-
-    this.addCommand({
-      id: "open-chat-tab",
-      name: "Open Bolovan chat in new tab",
-      callback: () => void this.openChatTab(),
-    });
-
+    this.addRibbonIcon("message-square", "Open Bolovan chat", () => void this.toggleChatView());
+    this.addCommand({ id: "open-chat", name: "Open Bolovan chat", callback: () => void this.toggleChatView() });
+    this.addCommand({ id: "open-chat-tab", name: "Open Bolovan chat in new tab", callback: () => void this.openChatTab() });
     this.addCommand({
       id: "summarize-active-note",
       name: "Summarize active note with Bolovan",
@@ -60,14 +97,12 @@ export default class BolovanPlugin extends Plugin {
         if (!activeNote || activeNote.extension !== "md") {
           return false;
         }
-
         if (!checking) {
           void this.summarize(activeNote);
         }
         return true;
       },
     });
-
     this.addCommand({
       id: "stop-agent",
       name: "Stop current agent run",
@@ -79,24 +114,17 @@ export default class BolovanPlugin extends Plugin {
         return isRunning;
       },
     });
-
     this.addCommand({
       id: "new-conversation",
       name: "Start a new Bolovan conversation",
       callback: () => void this.startNewConversation(),
     });
-
     this.addSettingTab(new BolovanSettingTab(this.app, this));
-
-    // The chat attaches "the open note", but its own leaf is active while
-    // the user types; remember the last note actually opened.
-    this.registerEvent(
-      this.app.workspace.on("file-open", (file) => {
-        if (file && file.extension === "md") {
-          this.lastOpenedNote = file;
-        }
-      }),
-    );
+    this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      if (file && file.extension === "md") {
+        this.lastOpenedNote = file;
+      }
+    }));
   }
 
   onunload(): void {
@@ -108,26 +136,65 @@ export default class BolovanPlugin extends Plugin {
     return this.agentInternal;
   }
 
-  get piPath(): string | undefined {
-    return this.bolovanSettings.piPath;
+  get config(): Readonly<BolovanSettings> {
+    return this.bolovanSettings;
   }
 
-  /** Whether outgoing chat messages attach the open note as context. */
   get includeActiveNote(): boolean {
-    return this.bolovanSettings.includeActiveNote ?? true;
+    return this.bolovanSettings.includeActiveNote;
   }
 
   async setIncludeActiveNote(include: boolean): Promise<void> {
     this.bolovanSettings.includeActiveNote = include;
-    await this.saveData(this.bolovanSettings);
+    await this.saveSettings();
   }
 
-  /**
-   * The note to attach as context: the file in the active leaf when it is
-   * a note, otherwise the last note opened before the chat took focus —
-   * but only while that note is still open in some tab; closing it drops
-   * the attachment. Non-markdown files are never attached.
-   */
+  async setProviderKind(kind: ProviderKind): Promise<void> {
+    this.bolovanSettings.providerKind = kind;
+    if (kind !== "webgpu" && this.bolovanSettings.model.startsWith("onnx-community/")) {
+      this.bolovanSettings.model = "gpt-5.6-terra";
+    }
+    if (kind === "openai") {
+      this.bolovanSettings.baseUrl = "https://api.openai.com/v1";
+    } else if (kind === "webgpu") {
+      this.bolovanSettings.model = LOCAL_WEBGPU_MODEL.id;
+    }
+    await this.saveSettings();
+  }
+
+  async setModel(model: string): Promise<void> {
+    this.bolovanSettings.model = model.trim();
+    await this.saveSettings();
+  }
+
+  async setThinkingEffort(effort: ThinkingEffort): Promise<void> {
+    this.bolovanSettings.thinkingEffort = effort;
+    await this.saveSettings();
+  }
+
+  async setBaseUrl(baseUrl: string): Promise<void> {
+    this.bolovanSettings.baseUrl = baseUrl.trim();
+    await this.saveSettings();
+  }
+
+  async setBrainFolder(folder: string): Promise<void> {
+    const value = folder.trim().replace(/^\/+|\/+$/g, "");
+    if (!value || value.startsWith(".") || value.includes("..")) {
+      throw new Error("Choose a visible folder inside the vault");
+    }
+    this.bolovanSettings.brainFolder = value;
+    await this.saveSettings();
+    new Notice("Reload Bolovan to use the new brain folder");
+  }
+
+  hasApiKey(): boolean {
+    return Boolean(this.app.secretStorage.getSecret(API_KEY_SECRET));
+  }
+
+  setApiKey(apiKey: string): void {
+    this.app.secretStorage.setSecret(API_KEY_SECRET, apiKey.trim());
+  }
+
   activeNote(): TFile | undefined {
     const current = this.app.workspace.getActiveFile();
     if (current) {
@@ -140,31 +207,15 @@ export default class BolovanPlugin extends Plugin {
     return candidate;
   }
 
-  private noteStillOpen(note: TFile): boolean {
-    return this.app.workspace
-      .getLeavesOfType("markdown")
-      .some((leaf) => leaf.view instanceof MarkdownView && leaf.view.file?.path === note.path);
-  }
-
-  /** Start the pi process if needed. Idempotent. */
   async startAgent(): Promise<void> {
     if (!this.agentInternal) {
       throw new Error("Bolovan is not ready");
     }
-    if (!this.agentInternal.started()) {
-      await this.agentInternal.start();
-    }
+    await this.agentInternal.start();
   }
 
-  /** Kill the pi process; the agent can start a new one later. */
   stopAgent(): void {
     this.agentInternal?.stop();
-  }
-
-  /** Saved only; a changed path applies the next time pi starts. */
-  async setPiPath(piPath: string): Promise<void> {
-    this.bolovanSettings.piPath = piPath || undefined;
-    await this.saveData(this.bolovanSettings);
   }
 
   async openChatView(): Promise<void> {
@@ -173,7 +224,6 @@ export default class BolovanPlugin extends Plugin {
       this.app.workspace.revealLeaf(existingLeaf);
       return;
     }
-
     const leaf = this.app.workspace.getRightLeaf(false);
     if (!leaf) {
       throw new Error("No sidebar available for the Bolovan chat");
@@ -182,10 +232,25 @@ export default class BolovanPlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
 
-  private async openChatTab(): Promise<void> {
-    const existingLeaf = this.app.workspace.getLeavesOfType(BOLOVAN_CHAT_VIEW)[0];
-    existingLeaf?.detach();
+  private providerConfig(): ProviderConfig {
+    const kind = this.bolovanSettings.providerKind;
+    return {
+      kind,
+      model: this.bolovanSettings.model,
+      baseUrl: kind === "openai" ? "https://api.openai.com/v1" : this.bolovanSettings.baseUrl,
+      apiKey: kind === "webgpu" ? undefined : this.app.secretStorage.getSecret(API_KEY_SECRET) ?? undefined,
+      thinkingEffort: this.bolovanSettings.thinkingEffort,
+    };
+  }
 
+  private noteStillOpen(note: TFile): boolean {
+    return this.app.workspace
+      .getLeavesOfType("markdown")
+      .some((leaf) => leaf.view instanceof MarkdownView && leaf.view.file?.path === note.path);
+  }
+
+  private async openChatTab(): Promise<void> {
+    this.app.workspace.getLeavesOfType(BOLOVAN_CHAT_VIEW)[0]?.detach();
     const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: BOLOVAN_CHAT_VIEW, active: true });
     this.app.workspace.revealLeaf(leaf);
@@ -201,16 +266,9 @@ export default class BolovanPlugin extends Plugin {
   }
 
   private async startNewConversation(): Promise<void> {
-    const agent = this.agentInternal;
-    if (!agent) {
-      return;
-    }
     try {
-      if (agent.started()) {
-        await agent.newSession();
-      } else {
-        agent.resetSession();
-      }
+      await this.startAgent();
+      await this.agentInternal?.newSession();
       new Notice("Bolovan starts a new conversation");
     } catch (error) {
       new Notice(`Bolovan failed: ${describeError(error)}`);
@@ -221,55 +279,165 @@ export default class BolovanPlugin extends Plugin {
     try {
       await this.openChatView();
       await this.startAgent();
-      await this.agentInternal?.ask(
-        `Read ${note.path} and summarize it in three concise bullets.`,
-      );
+      await this.agentInternal?.ask(`Read ${note.path} and summarize it in three concise bullets.`);
     } catch (error) {
       new Notice(`Bolovan failed: ${describeError(error)}`);
     }
   }
 
-  private vaultRoot(): string {
-    const adapter = this.app.vault.adapter;
-    if (!(adapter instanceof FileSystemAdapter)) {
-      throw new Error("Bolovan only runs on desktop file-system vaults");
-    }
-    return adapter.getBasePath();
-  }
-
-  private async persistSessionFile(sessionFile: string): Promise<void> {
-    this.bolovanSettings.sessionFile = sessionFile || undefined;
+  private async saveSettings(): Promise<void> {
     await this.saveData(this.bolovanSettings);
   }
 }
 
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 class BolovanSettingTab extends PluginSettingTab {
-  constructor(
-    app: App,
-    private readonly plugin: BolovanPlugin,
-  ) {
+  constructor(app: App, private readonly plugin: BolovanPlugin) {
     super(app, plugin);
   }
 
   display(): void {
     this.containerEl.empty();
+    this.containerEl.createEl("h2", { text: "Bolovan" });
 
     new Setting(this.containerEl)
-      .setName("pi binary path")
-      .setDesc(
-        "Absolute path to the pi executable. Leave empty to search PATH and the common pi install locations. Applies the next time pi starts.",
-      )
-      .addText((text) => {
-        text
-          .setPlaceholder("pi (on PATH)")
-          .setValue(this.plugin.piPath ?? "")
-          .onChange(async (value) => {
-            await this.plugin.setPiPath(value.trim());
+      .setName("Provider")
+      .setDesc("OpenAI works immediately with an API key. Compatible endpoints are advanced. Local uses WebGPU only.")
+      .addDropdown((dropdown) => dropdown
+        .addOption("openai", "OpenAI")
+        .addOption("openai-compatible", "OpenAI-compatible")
+        .addOption("webgpu", "Local WebGPU")
+        .setValue(this.plugin.config.providerKind)
+        .onChange(async (value) => {
+          await this.plugin.setProviderKind(value as ProviderKind);
+          this.display();
+        }));
+
+    if (this.plugin.config.providerKind !== "webgpu") {
+      new Setting(this.containerEl)
+        .setName("API key")
+        .setDesc("Stored in Obsidian SecretStorage on this device; never written into the vault or synced.")
+        .addText((text) => {
+          text.inputEl.type = "password";
+          text.setPlaceholder(this.plugin.hasApiKey() ? "Configured — enter to replace" : "sk-…");
+          text.onChange((value) => {
+            if (value.trim()) {
+              this.plugin.setApiKey(value);
+            }
           });
+        })
+        .addExtraButton((button) => button
+          .setIcon("trash")
+          .setTooltip("Clear the saved API key")
+          .onClick(() => {
+            this.plugin.setApiKey("");
+            this.display();
+          }));
+    }
+
+    if (this.plugin.config.providerKind === "openai-compatible") {
+      new Setting(this.containerEl)
+        .setName("Base URL")
+        .setDesc("The endpoint root ending in /v1. It must implement OpenAI Chat Completions and function tools.")
+        .addText((text) => text
+          .setPlaceholder("https://example.test/v1")
+          .setValue(this.plugin.config.baseUrl)
+          .onChange((value) => void this.plugin.setBaseUrl(value)));
+    }
+
+    const modelSetting = new Setting(this.containerEl)
+      .setName("Model")
+      .setDesc(this.plugin.config.providerKind === "webgpu"
+        ? "Curated WebGPU model. The first run downloads model weights into the browser cache. No CPU fallback."
+        : this.plugin.config.providerKind === "openai"
+          ? "Choose the active OpenAI model. Terra is the balanced default."
+          : "Model ID exposed by your OpenAI-compatible server.");
+    if (this.plugin.config.providerKind === "openai-compatible") {
+      modelSetting.addText((text) => text
+        .setPlaceholder("model-name")
+        .setValue(this.plugin.config.model)
+        .onChange((value) => void this.plugin.setModel(value)));
+    } else {
+      const choices = this.plugin.config.providerKind === "webgpu"
+        ? [LOCAL_WEBGPU_MODEL]
+        : [...OPENAI_MODELS];
+      modelSetting.addDropdown((dropdown) => {
+        for (const choice of choices) {
+          dropdown.addOption(choice.id, choice.name);
+        }
+        if (!choices.some((choice) => choice.id === this.plugin.config.model)) {
+          dropdown.addOption(this.plugin.config.model, `${this.plugin.config.model} — saved model`);
+        }
+        return dropdown
+          .setValue(this.plugin.config.model)
+          .onChange((value) => void this.plugin.setModel(value));
       });
+    }
+
+    const thinkingSetting = new Setting(this.containerEl)
+      .setName("Thinking effort")
+      .setDesc(this.plugin.config.providerKind === "webgpu"
+        ? "The current local WebGPU model does not expose configurable thinking effort."
+        : this.plugin.config.providerKind === "openai"
+          ? "Controls reasoning depth. Higher levels can improve difficult work but increase latency and token use."
+          : "Sent as reasoning_effort when enabled. Choose None if your endpoint does not support it.");
+    thinkingSetting.addDropdown((dropdown) => {
+      const levels = this.plugin.config.providerKind === "webgpu"
+        ? THINKING_LEVELS.filter((level) => level.id === "none")
+        : THINKING_LEVELS;
+      for (const level of levels) {
+        dropdown.addOption(level.id, level.name);
+      }
+      return dropdown
+        .setValue(this.plugin.config.providerKind === "webgpu" ? "none" : this.plugin.config.thinkingEffort)
+        .setDisabled(this.plugin.config.providerKind === "webgpu")
+        .onChange((value) => void this.plugin.setThinkingEffort(value as ThinkingEffort));
+    });
+
+    if (this.plugin.config.providerKind === "webgpu") {
+      new Setting(this.containerEl)
+        .setName("WebGPU status")
+        .setDesc(webGpuDescription())
+        .setDisabled(true);
+    }
+
+    new Setting(this.containerEl)
+      .setName("AI brain folder")
+      .setDesc("Visible folder inside the vault containing portable instructions, skills, prompts, and conversation branches.")
+      .addText((text) => text
+        .setValue(this.plugin.config.brainFolder)
+        .setPlaceholder("system/Bolovan")
+        .onChange(async (value) => {
+          try {
+            await this.plugin.setBrainFolder(value);
+          } catch (error) {
+            new Notice(describeError(error));
+          }
+        }));
   }
+}
+
+function knownSettings(loaded: Partial<BolovanSettings> | undefined): Partial<BolovanSettings> {
+  if (!loaded) {
+    return {};
+  }
+  const result: Partial<BolovanSettings> = {};
+  for (const key of ["providerKind", "model", "thinkingEffort", "baseUrl", "brainFolder", "deviceId", "activeBranch", "includeActiveNote"] as const) {
+    if (loaded[key] !== undefined) {
+      (result as any)[key] = loaded[key];
+    }
+  }
+  return result;
+}
+
+function webGpuDescription(): string {
+  if (!("gpu" in navigator)) {
+    return "Unavailable on this device. Select OpenAI or an OpenAI-compatible provider.";
+  }
+  return Platform.isMobile
+    ? "WebGPU API detected in this mobile WebView; hardware qualification happens when the model loads."
+    : "WebGPU API detected in this desktop renderer; hardware qualification happens when the model loads.";
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -68,16 +68,6 @@
   padding-top: var(--size-4-1);
 }
 
-.bolovan-chat__models {
-  flex: 1 1 10rem;
-  min-width: 5rem;
-}
-
-.bolovan-chat__thinking {
-  flex: 0 1 7rem;
-  min-width: 5rem;
-}
-
 .bolovan-chat__stats {
   color: var(--text-faint);
   flex: 0 0 auto;
@@ -509,10 +499,6 @@
 
   .bolovan-chat__controls {
     flex-wrap: wrap;
-  }
-
-  .bolovan-chat__models {
-    flex-basis: calc(100% - 8rem);
   }
 
   .bolovan-chat__stats {

@@ -1,10 +1,10 @@
 {
   "id": "bolovan",
   "name": "Bolovan",
-  "version": "0.2.0",
-  "minAppVersion": "1.8.0",
-  "description": "Run pi against your Obsidian vault from inside Obsidian.",
+  "version": "0.3.0",
+  "minAppVersion": "1.13.4",
+  "description": "A cross-platform AI agent built into Obsidian, with OpenAI and local WebGPU providers.",
   "author": "Alex Radunet",
   "authorUrl": "https://github.com/alexradunet",
-  "isDesktopOnly": true
+  "isDesktopOnly": false
 }

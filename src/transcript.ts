@@ -24,6 +24,7 @@ export interface TranscriptToolItem {
   name: string;
   target: string;
   status: TranscriptToolStatus;
+  callId?: string;
 }
 
 export interface TranscriptSystemItem {
@@ -198,9 +199,6 @@ export class Transcript {
     }
 
     if (message.role === "user") {
-      // pi's native attachments (images) are ignored, but the message text
-      // stays — dropping the whole message was the old bug. Bolovan's own
-      // attached-notes block is split out so only the typed text shows.
       const { text, paths } = splitAttachedNotes(messageText(message.content));
       if (text.trim()) {
         this.notify(this.append({
@@ -213,50 +211,57 @@ export class Transcript {
     }
 
     if (message.role === "assistant") {
-      for (const block of message.content ?? []) {
-        if (block?.type === "text" && String(block.text ?? "").trim()) {
-          this.finalizeOpenAssistant();
-          this.notify(this.append({
-            kind: "assistant",
-            markdown: String(block.text),
-            finalized: true,
-          }));
-        }
-        if (block?.type === "toolCall") {
-          this.finalizeOpenAssistant();
-          this.notify(this.append({
-            kind: "tool",
-            name: String(block.name ?? "tool"),
-            target: toolTarget(parseJson(block.arguments)),
-            status: "running",
-          }));
-        }
-        // Thinking blocks are skipped; they are not transcript content yet.
-      }
-      return;
-    }
-
-    if (message.role === "toolResult") {
-      const paired = this.runningTool(String(message.toolName ?? ""));
-      if (paired) {
-        paired.status = message.isError ? "error" : "done";
-        this.notify(paired);
-      }
-      if (message.isError) {
-        const detail = messageText(message.content).slice(0, 400);
+      const text = messageText(message.content);
+      if (text.trim()) {
+        this.finalizeOpenAssistant();
         this.notify(this.append({
-          kind: "system",
-          text: `${message.toolName ?? "tool"} failed: ${detail}`,
+          kind: "assistant",
+          markdown: text,
+          finalized: true,
+        }));
+      }
+      for (const call of message.toolCalls ?? []) {
+        this.finalizeOpenAssistant();
+        this.notify(this.append({
+          kind: "tool",
+          name: String(call.name ?? "tool"),
+          target: toolTarget(call.arguments),
+          status: "running",
+          callId: String(call.id ?? ""),
         }));
       }
       return;
     }
 
-    if (message.role === "bashExecution" && message.command) {
-      // Direct TUI bash commands keep shared sessions coherent; the output
-      // itself stays out of the transcript.
-      this.notify(this.append({ kind: "system", text: `ran \`${message.command}\`` }));
+    if (message.role === "tool") {
+      const paired = this.runningToolById(String(message.toolCallId ?? ""));
+      if (paired) {
+        paired.status = toolResultIsError(message.content) ? "error" : "done";
+        this.notify(paired);
+      }
+      if (toolResultIsError(message.content)) {
+        const detail = messageText(message.content).slice(0, 400);
+        this.notify(this.append({
+          kind: "system",
+          text: `Tool failed: ${detail}`,
+        }));
+      }
+      return;
     }
+
+    if (message.role === "system" && message.content) {
+      this.notify(this.append({ kind: "system", text: String(message.content) }));
+    }
+  }
+
+  private runningToolById(callId: string): TranscriptToolItem | undefined {
+    for (let index = this.itemList.length - 1; index >= 0; index -= 1) {
+      const item = this.itemList[index];
+      if (item?.kind === "tool" && item.callId === callId && item.status === "running") {
+        return item;
+      }
+    }
+    return undefined;
   }
 
   private append(fields: Omit<TranscriptUserItem, "id">): TranscriptUserItem;
@@ -295,13 +300,14 @@ function toolTarget(args: Record<string, unknown> | undefined): string {
   return String(target);
 }
 
-function parseJson(value: unknown): Record<string, unknown> | undefined {
+function toolResultIsError(value: unknown): boolean {
   if (typeof value !== "string") {
-    return value as Record<string, unknown> | undefined;
+    return false;
   }
   try {
-    return JSON.parse(value);
+    const parsed = JSON.parse(value);
+    return parsed?.isError === true;
   } catch {
-    return undefined;
+    return /rejected|failed|not found|error/i.test(value);
   }
 }

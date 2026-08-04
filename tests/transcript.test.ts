@@ -23,24 +23,21 @@ describe("Transcript history mapping", () => {
       { role: "user", content: "Summarize today's journal." },
       {
         role: "assistant",
-        content: [
-          { type: "text", text: "Reading the note." },
+        content: "Reading the note.",
+        toolCalls: [
           {
-            type: "toolCall",
             id: "call-1",
-            name: "read",
-            arguments: '{"path":"Journal/Today.md"}',
+            name: "vault_read",
+            arguments: { path: "Journal/Today.md" },
           },
         ],
       },
       {
-        role: "toolResult",
+        role: "tool",
         toolCallId: "call-1",
-        toolName: "read",
-        content: [{ type: "text", text: "note body" }],
-        isError: false,
+        content: "note body",
       },
-      { role: "assistant", content: [{ type: "text", text: "A grounded summary." }] },
+      { role: "assistant", content: "A grounded summary." },
     ]);
 
     expect(transcript.all().map((item) => item.kind)).toEqual([
@@ -53,7 +50,7 @@ describe("Transcript history mapping", () => {
     const tool = transcript.all()[2];
     expect(tool).toMatchObject({
       kind: "tool",
-      name: "read",
+      name: "vault_read",
       target: "Journal/Today.md",
       status: "done",
     });
@@ -92,16 +89,13 @@ describe("Transcript history mapping", () => {
     });
   });
 
-  it("skips thinking blocks", () => {
+  it("renders normalized assistant text", () => {
     const transcript = new Transcript();
 
     transcript.loadHistory([
       {
         role: "assistant",
-        content: [
-          { type: "thinking", thinking: "internal reasoning" },
-          { type: "text", text: "visible answer" },
-        ],
+        content: "visible answer",
       },
     ]);
 
@@ -115,21 +109,19 @@ describe("Transcript history mapping", () => {
     transcript.loadHistory([
       {
         role: "assistant",
-        content: [
+        content: "",
+        toolCalls: [
           {
-            type: "toolCall",
             id: "call-1",
-            name: "read",
-            arguments: '{"path":"Missing.md"}',
+            name: "vault_read",
+            arguments: { path: "Missing.md" },
           },
         ],
       },
       {
-        role: "toolResult",
+        role: "tool",
         toolCallId: "call-1",
-        toolName: "read",
-        content: [{ type: "text", text: "File not found" }],
-        isError: true,
+        content: "File not found",
       },
     ]);
 
@@ -137,19 +129,19 @@ describe("Transcript history mapping", () => {
     expect(transcript.all()[0]).toMatchObject({ kind: "tool", status: "error" });
     expect(transcript.all()[1]).toMatchObject({
       kind: "system",
-      text: "read failed: File not found",
+      text: "Tool failed: File not found",
     });
   });
 
-  it("renders direct bash commands as system lines", () => {
+  it("renders persisted system markers as system lines", () => {
     const transcript = new Transcript();
 
     transcript.loadHistory([
-      { role: "bashExecution", command: "ls -la", output: "…", exitCode: 0 },
+      { role: "system", content: "Provider changed to local WebGPU" },
     ]);
 
     expect(transcript.all()).toHaveLength(1);
-    expect(transcript.all()[0]).toMatchObject({ kind: "system", text: "ran `ls -la`" });
+    expect(transcript.all()[0]).toMatchObject({ kind: "system", text: "Provider changed to local WebGPU" });
   });
 
   it("replaces previous items when loading a different session", () => {
@@ -224,7 +216,7 @@ describe("Transcript live events", () => {
 
     applyAll(transcript, [
       { type: "notify", message: "Command blocked", notifyType: "warning" },
-      { type: "exited", message: "pi exited (code 1). Tried pi." },
+      { type: "exited", message: "Provider request failed." },
     ]);
 
     expect(transcript.all().map((item) => item.kind)).toEqual(["system", "system"]);
@@ -254,7 +246,7 @@ describe("Transcript continuity and surface messages", () => {
     const changes = collectChanges(transcript);
 
     transcript.say("hello");
-    transcript.note("Bolovan failed: pi exited");
+    transcript.note("Bolovan failed: provider unavailable");
 
     expect(changes.map((item) => item.kind)).toEqual(["user", "system"]);
   });

@@ -1,23 +1,25 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { PiTransport, type RpcResponse } from "./pi-transport";
+import type { App } from "obsidian";
+import { BrainStore, type ConversationSummary } from "./brain-store";
+import {
+  createModelAdapter,
+  type ModelAdapter,
+  type ModelMessage,
+  type ProviderConfig,
+  type RequestTransport,
+} from "./model-adapter";
+import { VAULT_TOOL_DEFINITIONS, VaultTools, type ChangePreview, type ToolResult } from "./vault-tools";
+
+const MAX_TOOL_ROUNDS = 12;
 
 export interface BolovanAgentOptions {
-  /** Vault root; the spawned pi process runs with this cwd. */
-  cwd: string;
-  /**
-   * Absolute path to the pi binary, or a getter for it; falls back to PATH
-   * lookup and install-location probing. Read at spawn time, so setting
-   * changes apply the next time pi starts.
-   */
-  piPath?: string | (() => string | undefined);
-  /** Session file tracked from a previous run; absent means a fresh session. */
-  sessionFile?: string;
-  /** Extra environment variables, merged over the inherited environment. */
-  env?: Record<string, string>;
-  /** Called whenever the resolved session file path changes. */
-  onSessionFile?(sessionFile: string): void;
+  app: App;
+  brainFolder: string;
+  deviceId: string;
+  activeBranch?: string;
+  provider(): ProviderConfig;
+  requestTransport: RequestTransport;
+  onActiveBranch?(path: string): void;
+  onBrainFolder?(folder: string): void;
 }
 
 export type BolovanEvent =
@@ -29,7 +31,6 @@ export type BolovanEvent =
   | { type: "ui-request"; request: BolovanUiRequest }
   | { type: "notify"; message: string; notifyType: string };
 
-/** Dialog requests from pi extensions (e.g. the write-approval gate). */
 export interface BolovanUiRequest {
   id: string;
   method: "select" | "confirm" | "input" | "editor";
@@ -42,53 +43,49 @@ export interface BolovanUiRequest {
 
 export interface BolovanAgentStatus {
   isRunning: boolean;
-  sessionFile: string | undefined;
+  activeBranch: string | undefined;
 }
 
 export interface BolovanModelState {
   provider: string;
   modelId: string;
   thinkingLevel: string;
-  sessionFile: string | undefined;
+  activeBranch: string | undefined;
   messageCount: number;
   isStreaming: boolean;
 }
 
-export interface BolovanModelInfo {
-  provider: string;
-  id: string;
-  name: string;
-}
-
-export interface BolovanSessionSummary {
-  path: string;
-  modifiedMs: number;
-  label: string;
-}
+export type BolovanSessionSummary = ConversationSummary;
 
 /**
- * The vault session façade over one pi process. Owns everything with
- * meaning — runs, session lineage, dialog routing, the command wrappers —
- * and delegates the process and protocol to PiTransport.
+ * Obsidian-native agent harness. The view speaks this small interface; model
+ * providers, Vault tools, approval, and synced branch persistence stay inside.
  */
 export class BolovanAgent {
-  private readonly transport: PiTransport;
+  private readonly brain: BrainStore;
+  private readonly tools: VaultTools;
+  private adapter: ModelAdapter | undefined;
+  private adapterKey = "";
   private listeners = new Set<(event: BolovanEvent) => void>();
   private uiResponder: ((request: BolovanUiRequest) => void) | undefined;
-  private runController: ReturnType<typeof createRunController> | undefined;
+  private approvals = new Map<string, (approved: boolean) => void>();
+  private controller: AbortController | undefined;
+  private queuedSteering: string[] = [];
+  private initialized = false;
   private running = false;
-  private sessionFile: string | undefined;
+  private totalTokens = 0;
+  private inputTokens = 0;
+  private outputTokens = 0;
 
   private constructor(private readonly options: BolovanAgentOptions) {
-    const tracked = options.sessionFile;
-    this.sessionFile = tracked && existsSync(tracked) ? tracked : undefined;
-
-    this.transport = new PiTransport({
-      cwd: options.cwd,
-      piPath: options.piPath,
-      env: options.env,
+    this.brain = new BrainStore(options.app, {
+      folder: options.brainFolder,
+      deviceId: options.deviceId,
+      activeBranch: options.activeBranch,
+      onActiveBranch: options.onActiveBranch,
+      onFolderResolved: options.onBrainFolder,
     });
-    this.transport.subscribe((record) => this.handleRecord(record));
+    this.tools = new VaultTools(options.app);
   }
 
   static create(options: BolovanAgentOptions): BolovanAgent {
@@ -97,38 +94,37 @@ export class BolovanAgent {
 
   subscribe(listener: (event: BolovanEvent) => void): () => void {
     this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
+    return () => this.listeners.delete(listener);
   }
 
-  /**
-   * The chat view registers itself as the dialog surface for extension UI
-   * requests. Without a responder, dialog requests are cancelled at once so
-   * the agent never blocks on an invisible prompt.
-   */
   setUiResponder(responder: ((request: BolovanUiRequest) => void) | undefined): void {
     this.uiResponder = responder;
   }
 
-  /** Answer an extension UI dialog request. */
   respondUi(id: string, payload: Record<string, unknown>): void {
-    this.transport.send({ type: "extension_ui_response", id, ...payload });
+    const resolve = this.approvals.get(id);
+    if (!resolve) {
+      return;
+    }
+    this.approvals.delete(id);
+    resolve(payload.cancelled !== true && (payload.confirmed === true || payload.value === true));
   }
 
   status(): BolovanAgentStatus {
-    return { isRunning: this.running, sessionFile: this.sessionFile };
+    return { isRunning: this.running, activeBranch: this.brain.activeBranchPath() };
   }
 
   started(): boolean {
-    return this.transport.started();
+    return this.initialized;
   }
 
-  /** Spawn the pi process and complete the startup handshake. Idempotent. */
   async start(): Promise<BolovanModelState> {
-    const state = await this.transport.start({ sessionFile: this.sessionFile });
-    this.trackSessionFile(state?.sessionFile);
-    return toModelState(state);
+    if (!this.initialized) {
+      await this.brain.initialize();
+      this.initialized = true;
+    }
+    this.ensureAdapter();
+    return this.getState();
   }
 
   async ask(prompt: string): Promise<void> {
@@ -136,290 +132,237 @@ export class BolovanAgent {
       throw new Error("Bolovan is already running");
     }
     await this.start();
-
+    const provider = this.options.provider();
+    this.controller = new AbortController();
     this.running = true;
-    const run = createRunController();
-    this.runController = run;
 
     try {
-      await this.command({ type: "prompt", message: prompt });
-      await run.outcome;
-      if (!this.sessionFile) {
-        // Fresh sessions only get a file once something happened; ask again.
-        const state = await this.getState();
-        this.trackSessionFile(state.sessionFile);
+      const previous = this.brain.modelInfo();
+      if (previous && this.brain.messages().length > 0 &&
+          (previous.provider !== provider.kind || previous.model !== provider.model)) {
+        await this.brain.append([{
+          role: "system",
+          content: `Provider changed: ${previous.provider}/${previous.model} → ${provider.kind}/${provider.model}`,
+        }], provider.kind, provider.model);
       }
+      await this.brain.append([{ role: "user", content: prompt }], provider.kind, provider.model);
+      await this.runLoop(this.controller.signal, provider);
+      this.emit({ type: "settled" });
+    } catch (error) {
+      if (!isAbort(error)) {
+        this.emit({ type: "exited", message: describeError(error) });
+        throw error;
+      }
+      this.emit({ type: "settled" });
     } finally {
-      this.runController = undefined;
       this.running = false;
+      this.controller = undefined;
     }
   }
 
-  /** Queue a steering message while a run is active. */
   async steer(message: string): Promise<void> {
-    await this.command({ type: "steer", message });
+    if (!this.running) {
+      await this.ask(message);
+      return;
+    }
+    this.queuedSteering.push(message);
   }
 
   async cancel(): Promise<void> {
-    if (!this.started() || !this.running) {
-      return;
+    this.controller?.abort();
+    for (const resolve of this.approvals.values()) {
+      resolve(false);
     }
-    this.transport.abort();
+    this.approvals.clear();
   }
 
-  /** Kill the process; the agent can be started again. */
   stop(): void {
-    this.running = false;
-    this.runController?.fail(new Error("Bolovan stopped"));
-    this.runController = undefined;
-    this.transport.stop();
+    void this.cancel();
   }
 
   dispose(): void {
     this.stop();
+    this.adapter?.dispose?.();
+    this.adapter = undefined;
     this.listeners.clear();
   }
 
   async getState(): Promise<BolovanModelState> {
-    const response = await this.command({ type: "get_state" });
-    return toModelState(response.data ?? {});
+    const provider = this.options.provider();
+    return {
+      provider: provider.kind,
+      modelId: provider.model,
+      thinkingLevel: provider.thinkingEffort ?? "none",
+      activeBranch: this.brain.activeBranchPath(),
+      messageCount: this.brain.messages().length,
+      isStreaming: this.running,
+    };
   }
 
-  async getMessages(): Promise<any[]> {
-    const response = await this.command({ type: "get_messages" });
-    return response.data?.messages ?? [];
+  async getMessages(): Promise<ModelMessage[]> {
+    return this.brain.messages();
   }
 
   async getStats(): Promise<any> {
-    const response = await this.command({ type: "get_session_stats" });
-    return response.data ?? {};
-  }
-
-  async listModels(): Promise<BolovanModelInfo[]> {
-    const response = await this.command({ type: "get_available_models" });
-    const models = response.data?.models ?? [];
-    return models.map((model: any) => ({
-      provider: model.provider ?? "unknown",
-      id: model.id ?? "unknown",
-      name: model.name ?? model.id ?? "unknown",
-    }));
-  }
-
-  async setModel(provider: string, modelId: string): Promise<void> {
-    await this.command({ type: "set_model", provider, modelId });
-  }
-
-  async listThinkingLevels(): Promise<string[]> {
-    const response = await this.command({ type: "get_available_thinking_levels" });
-    return response.data?.levels ?? ["off"];
-  }
-
-  async setThinkingLevel(level: string): Promise<void> {
-    await this.command({ type: "set_thinking_level", level });
-  }
-
-  /** Start a fresh pi session; returns the new session file once known. */
-  async newSession(): Promise<string | undefined> {
-    await this.command({ type: "new_session" });
-    const state = await this.getState();
-    this.trackSessionFile(state.sessionFile);
-    return state.sessionFile;
-  }
-
-  async switchSession(sessionPath: string): Promise<void> {
-    await this.command({ type: "switch_session", sessionPath });
-    const state = await this.getState();
-    this.trackSessionFile(state.sessionFile);
-  }
-
-  /** Drop the tracked session lineage; the next start creates a fresh session. */
-  resetSession(): void {
-    this.sessionFile = undefined;
-    this.options.onSessionFile?.("");
-  }
-
-  /** Sessions stored for this vault, newest first. */
-  listSessions(): BolovanSessionSummary[] {
-    const dir = join(this.sessionsRoot(), vaultSessionDirName(this.options.cwd));
-    if (!existsSync(dir)) {
-      return [];
-    }
-
-    const summaries: BolovanSessionSummary[] = [];
-    for (const entry of readdirSync(dir)) {
-      if (!entry.endsWith(".jsonl")) {
-        continue;
-      }
-      const path = join(dir, entry);
-      let modifiedMs = 0;
-      try {
-        modifiedMs = statSync(path).mtimeMs;
-      } catch {
-        continue;
-      }
-      summaries.push({ path, modifiedMs, label: sessionLabel(entry) });
-    }
-
-    return summaries.sort((a, b) => b.modifiedMs - a.modifiedMs);
-  }
-
-  private async command(command: Record<string, unknown>): Promise<RpcResponse> {
-    return this.transport.command(command);
-  }
-
-  private handleRecord(record: any): void {
-    if (record?.type === "transport_exited") {
-      const error = new Error(record.message);
-      this.runController?.fail(error);
-      this.runController = undefined;
-      this.running = false;
-      this.emit({ type: "exited", message: record.message });
-      return;
-    }
-
-    if (record?.type === "extension_ui_request" && typeof record.id === "string") {
-      if (record.method === "notify") {
-        this.emit({
-          type: "notify",
-          message: String(record.message ?? ""),
-          notifyType: String(record.notifyType ?? "info"),
-        });
-        return;
-      }
-      this.handleUiRequest(record);
-      return;
-    }
-
-    const event = toBolovanEvent(record);
-    if (event) {
-      this.emit(event);
-    }
-  }
-
-  private handleUiRequest(record: any): void {
-    const dialogMethods = ["select", "confirm", "input", "editor"];
-    if (!dialogMethods.includes(record.method)) {
-      return;
-    }
-
-    const request: BolovanUiRequest = {
-      id: record.id,
-      method: record.method,
-      title: record.title,
-      message: record.message,
-      options: record.options,
-      placeholder: record.placeholder,
-      prefill: record.prefill,
+    return {
+      tokens: { input: this.inputTokens, output: this.outputTokens, total: this.totalTokens },
+      cost: 0,
+      contextUsage: undefined,
     };
+  }
 
-    if (!this.uiResponder) {
-      this.respondUi(request.id, { cancelled: true });
+  async newSession(): Promise<string | undefined> {
+    await this.start();
+    const provider = this.options.provider();
+    return this.brain.newConversation(provider.kind, provider.model);
+  }
+
+  async switchSession(path: string): Promise<void> {
+    await this.start();
+    await this.brain.switch(path);
+  }
+
+  resetSession(): void {
+    this.brain.reset();
+  }
+
+  listSessions(): BolovanSessionSummary[] {
+    return this.brain.list();
+  }
+
+  private async runLoop(signal: AbortSignal, provider: ProviderConfig): Promise<void> {
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+      if (signal.aborted) {
+        throw abortError();
+      }
+      const adapter = this.ensureAdapter(provider);
+      const instructions = await this.brain.instructions();
+      const messages: ModelMessage[] = [
+        { role: "system", content: systemPrompt(instructions) },
+        ...this.brain.messages(),
+      ];
+      const reply = await adapter.complete(messages, VAULT_TOOL_DEFINITIONS, signal);
+      this.recordUsage(reply.usage);
+      const assistant: ModelMessage = {
+        role: "assistant",
+        content: reply.text,
+        toolCalls: reply.toolCalls.length ? reply.toolCalls : undefined,
+      };
+      await this.brain.append([assistant], provider.kind, provider.model);
+      if (reply.text) {
+        this.emit({ type: "text", delta: reply.text });
+      }
+
+      if (reply.toolCalls.length) {
+        for (const call of reply.toolCalls) {
+          if (signal.aborted) {
+            throw abortError();
+          }
+          this.emit({ type: "tool-start", name: call.name, args: call.arguments });
+          const result = await this.executeTool(call.name, call.arguments);
+          this.emit({ type: "tool-end", name: call.name, isError: result.isError === true });
+          await this.brain.append([{
+            role: "tool",
+            content: result.content,
+            toolCallId: call.id,
+          }], provider.kind, provider.model);
+        }
+        continue;
+      }
+
+      const steering = this.queuedSteering.splice(0);
+      if (steering.length) {
+        await this.brain.append(
+          steering.map((content) => ({ role: "user" as const, content })),
+          provider.kind,
+          provider.model,
+        );
+        continue;
+      }
       return;
     }
-    this.uiResponder(request);
+    throw new Error(`Bolovan stopped after ${MAX_TOOL_ROUNDS} tool rounds`);
+  }
+
+  private async executeTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+    const prepared = await this.tools.execute(name, args);
+    if (!isChangePreview(prepared)) {
+      return prepared;
+    }
+    const approved = await this.requestApproval(prepared);
+    if (!approved) {
+      return { content: "The user rejected this change. Nothing was changed.", isError: true };
+    }
+    try {
+      return await prepared.apply();
+    } catch (error) {
+      return { content: describeError(error), isError: true };
+    }
+  }
+
+  private requestApproval(change: ChangePreview): Promise<boolean> {
+    if (!this.uiResponder) {
+      return Promise.resolve(false);
+    }
+    const id = crypto.randomUUID();
+    const request: BolovanUiRequest = {
+      id,
+      method: "confirm",
+      title: change.title,
+      message: change.message,
+    };
+    return new Promise<boolean>((resolve) => {
+      this.approvals.set(id, resolve);
+      this.uiResponder?.(request);
+      this.emit({ type: "ui-request", request });
+    });
+  }
+
+  private ensureAdapter(provider = this.options.provider()): ModelAdapter {
+    const key = JSON.stringify(provider);
+    if (!this.adapter || this.adapterKey !== key) {
+      this.adapter?.dispose?.();
+      this.adapter = createModelAdapter(provider, this.options.requestTransport);
+      this.adapterKey = key;
+    }
+    return this.adapter;
+  }
+
+  private recordUsage(usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined): void {
+    this.inputTokens += usage?.inputTokens ?? 0;
+    this.outputTokens += usage?.outputTokens ?? 0;
+    this.totalTokens += usage?.totalTokens ?? 0;
   }
 
   private emit(event: BolovanEvent): void {
-    if (event.type === "settled") {
-      this.runController?.settle();
-    }
     for (const listener of this.listeners) {
       listener(event);
     }
   }
-
-  private trackSessionFile(sessionFile: string | undefined): void {
-    if (!sessionFile || sessionFile === this.sessionFile) {
-      return;
-    }
-    this.sessionFile = sessionFile;
-    this.options.onSessionFile?.(sessionFile);
-  }
-
-  private sessionsRoot(): string {
-    const env = { ...process.env, ...this.options.env };
-    const agentDir = env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
-    return join(agentDir, "sessions");
-  }
 }
 
-function toModelState(data: any): BolovanModelState {
-  return {
-    provider: data?.model?.provider ?? "unknown",
-    modelId: data?.model?.id ?? "unknown",
-    thinkingLevel: data?.thinkingLevel ?? "off",
-    sessionFile: data?.sessionFile,
-    messageCount: data?.messageCount ?? 0,
-    isStreaming: data?.isStreaming === true,
-  };
+function systemPrompt(instructions: string): string {
+  return [
+    "You are Bolovan, an AI agent built into Obsidian.",
+    "Use only the provided vault tools for vault access. Read relevant files before proposing changes.",
+    "Use vault_change for every mutation; the user sees and approves the exact operation.",
+    "Use [[wikilinks]] when referring to vault notes. Never claim a change succeeded before its tool result.",
+    instructions.trim(),
+  ].filter(Boolean).join("\n\n");
 }
 
-/** pi stores sessions under a directory derived from the cwd with a trailing
- * separator: slashes become dashes and the result is wrapped in dashes. */
-export function vaultSessionDirName(cwd: string): string {
-  const normalized = `${cwd.replace(/\/+$/, "")}/`;
-  return `-${normalized.replaceAll("/", "-")}-`;
+function isChangePreview(value: ToolResult | ChangePreview): value is ChangePreview {
+  return "apply" in value;
 }
 
-/** Session files are named after their creation timestamp; use it as a label. */
-function sessionLabel(fileName: string): string {
-  const match = fileName.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})/);
-  if (!match) {
-    return fileName;
-  }
-  return `${match[1]} ${match[2]}:${match[3]}:${match[4]}`;
+function isAbort(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
-function createRunController(): {
-  outcome: Promise<void>;
-  settle(): void;
-  fail(error: Error): void;
-} {
-  let settle: () => void = () => undefined;
-  let fail: (error: Error) => void = () => undefined;
-  const outcome = new Promise<void>((resolve, reject) => {
-    settle = resolve;
-    fail = reject;
-  });
-  // Failures can arrive (via process exit) before anything awaits the
-  // outcome; keep the rejection from being reported as unhandled.
-  outcome.catch(() => undefined);
-
-  return {
-    outcome,
-    settle: () => settle(),
-    fail: (error) => fail(error),
-  };
+function abortError(): DOMException {
+  return new DOMException("The response was stopped", "AbortError");
 }
 
-function toBolovanEvent(record: any): BolovanEvent | undefined {
-  if (record?.type === "message_update") {
-    const delta = record.assistantMessageEvent;
-    if (delta?.type === "text_delta" && typeof delta.delta === "string") {
-      return { type: "text", delta: delta.delta };
-    }
-    return undefined;
-  }
-
-  if (record?.type === "tool_execution_start") {
-    return {
-      type: "tool-start",
-      name: record.toolName ?? "unknown",
-      args: record.args ?? {},
-    };
-  }
-
-  if (record?.type === "tool_execution_end") {
-    return {
-      type: "tool-end",
-      name: record.toolName ?? "unknown",
-      isError: record.isError === true,
-    };
-  }
-
-  if (record?.type === "agent_settled") {
-    return { type: "settled" };
-  }
-
-  return undefined;
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

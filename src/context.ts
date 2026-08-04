@@ -1,6 +1,6 @@
 /**
  * Note attachments for outgoing prompts: pure formatting and parsing.
- * Bolovan inlines attached note contents into the user prompt so pi sees
+ * Bolovan inlines attached note contents into the user prompt so the model sees
  * them without spending tool calls or approvals; the same block is split
  * back out when session history is displayed. Notes containing the closing
  * marker would confuse the split — acceptable, the marker is deliberately

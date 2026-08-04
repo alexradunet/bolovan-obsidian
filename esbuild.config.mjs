@@ -1,15 +1,14 @@
 import esbuild from "esbuild";
 import process from "node:process";
-import { builtinModules } from "node:module";
 
 const isProduction = process.argv[2] === "production";
 
 const context = await esbuild.context({
   entryPoints: ["src/main.ts"],
   bundle: true,
-  external: ["obsidian", "electron", ...builtinModules],
+  external: ["obsidian"],
   format: "cjs",
-  platform: "node",
+  platform: "browser",
   target: "es2021",
   logLevel: "info",
   sourcemap: isProduction ? false : "inline",
