@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { NazarAgent, type NazarEvent } from "../src/nazar-agent";
 
 const TEST_TIMEOUT_MS = 60_000;
+const HANDSHAKE_BUDGET_MS = 5_000;
 
 interface TestEnvironment {
   vaultDir: string;
@@ -109,6 +110,48 @@ describe("NazarAgent over pi RPC", () => {
         firstRunFirstRequest.messages.length,
       );
       expect(JSON.stringify(secondRunFirstRequest)).toContain("First question.");
+    },
+  );
+
+  it(
+    "fails fast when the pi binary cannot be started",
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const environment = await createTestEnvironment();
+      const agent = await createAgent({
+        cwd: environment.vaultDir,
+        env: agentEnv(environment),
+        piPath: "/nonexistent/nazar-test-pi",
+      });
+
+      const startedAt = Date.now();
+      await expect(agent.ask("Hello.", () => undefined)).rejects.toThrow(
+        /pi/,
+      );
+      // Must fail at spawn time, not after the 10s handshake timeout.
+      expect(Date.now() - startedAt).toBeLessThan(HANDSHAKE_BUDGET_MS);
+    },
+  );
+
+  it(
+    "falls back to probing install locations when PATH lacks pi",
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      // Desktop Obsidian sessions typically do not inherit the shell PATH.
+      const environment = await createTestEnvironment();
+      const agent = await createAgent({
+        cwd: environment.vaultDir,
+        env: { ...agentEnv(environment), PATH: "/usr/bin:/bin" },
+      });
+
+      const events: NazarEvent[] = [];
+      await agent.ask("Summarize today's journal.", (event) => events.push(event));
+
+      const text = events
+        .filter((event): event is { type: "text"; delta: string } => event.type === "text")
+        .map((event) => event.delta)
+        .join("");
+      expect(text).toContain("A grounded summary.");
     },
   );
 

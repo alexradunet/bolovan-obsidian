@@ -1,5 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, dirname, join } from "node:path";
 import { createJsonlReader } from "./jsonl";
 
 const HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -46,6 +48,7 @@ interface RpcResponse {
 export class NazarAgent {
   private child: ChildProcessWithoutNullStreams | undefined;
   private stderrTail = "";
+  private resolvedCommand: string | undefined;
   private pending = new Map<string, PendingCommand>();
   private running = false;
   private sessionFile: string | undefined;
@@ -77,13 +80,34 @@ export class NazarAgent {
     this.running = true;
     this.stderrTail = "";
 
-    const child = this.spawnPi();
+    const command = findPiBinary({ piPath: this.options.piPath });
+    if (!command) {
+      this.running = false;
+      throw new Error(
+        "pi binary not found. Install pi (https://pi.dev) or set the binary path in Nazar settings. " +
+          "Searched PATH and the common install locations.",
+      );
+    }
+    if (command !== "pi" && !existsSync(command)) {
+      this.running = false;
+      throw new Error(`pi binary not found at the configured path: ${command}`);
+    }
+    this.resolvedCommand = command;
+
+    const child = this.spawnPi(command);
     this.child = child;
     const send = makeSender(child);
 
     // One reader spans the whole run: handshake response, prompt response,
     // streamed events, and the settled signal all arrive on the same stdout.
     const run = createRunController();
+    child.on("error", (error) => {
+      // ENOENT/EACCES surface here, not as an exit. Without this handler the
+      // error is unhandled and the run would sit until the handshake timeout.
+      const wrapped = new Error(`pi could not be started: ${error.message}. ${this.failureDetail()}`);
+      this.rejectAllPending(wrapped);
+      run.fail(wrapped);
+    });
     const reader = attachEventReader(child, send, this.pending, {
       onEvent,
       onSettled: run.settle,
@@ -152,16 +176,15 @@ export class NazarAgent {
     return state.data;
   }
 
-  private spawnPi(): ChildProcessWithoutNullStreams {
+  private spawnPi(command: string): ChildProcessWithoutNullStreams {
     const args = ["--mode", "rpc", "--approve", "--name", SESSION_NAME];
     if (this.sessionFile) {
       args.push("--session", this.sessionFile);
     }
 
-    const command = this.options.piPath || "pi";
     const child = spawn(command, args, {
       cwd: this.options.cwd,
-      env: { ...process.env, ...this.options.env },
+      env: childEnv(command, this.options.env),
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -198,9 +221,77 @@ export class NazarAgent {
   }
 
   private failureDetail(): string {
-    const command = this.options.piPath || "pi";
+    const command = this.resolvedCommand || this.options.piPath || "pi";
     const detail = this.stderrTail.trim();
     return detail ? `Tried ${command}. ${detail}` : `Tried ${command}.`;
+  }
+}
+
+/**
+ * Resolve the pi binary. Desktop Obsidian sessions usually do not inherit the
+ * shell PATH, so a bare PATH lookup is not enough: after PATH, probe the
+ * stable install locations the pi installer maintains.
+ */
+export function findPiBinary(options: {
+  piPath?: string;
+  pathEnv?: string;
+  homeDir?: string;
+} = {}): string | undefined {
+  if (options.piPath) {
+    return options.piPath;
+  }
+
+  const pathEnv = options.pathEnv ?? process.env.PATH ?? "";
+  for (const dir of pathEnv.split(delimiter)) {
+    if (!dir) {
+      continue;
+    }
+    const candidate = join(dir, "pi");
+    if (isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+
+  const homeDir = options.homeDir ?? homedir();
+  const probeLocations = [
+    join(homeDir, ".local", "bin", "pi"),
+    "/usr/local/bin/pi",
+    join(homeDir, ".local", "share", "pi-node", "current", "bin", "pi"),
+  ];
+  for (const candidate of probeLocations) {
+    if (isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Build the child environment. Desktop sessions often lack the shell PATH,
+ * and the pi launcher is a node script: the directory holding the resolved
+ * pi binary also holds the matching node, so it goes first on PATH. When no
+ * PATH exists at all, restore the standard system directories so pi's own
+ * tools still find basic commands.
+ */
+function childEnv(command: string, extraEnv: Record<string, string> | undefined): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, ...extraEnv };
+  const fallbackPath = "/usr/local/bin:/usr/bin:/bin";
+  const configuredPath = env.PATH ?? "";
+  const basePath = configuredPath || fallbackPath;
+  env.PATH = `${dirname(command)}${delimiter}${basePath}`;
+  return env;
+}
+
+function isExecutable(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) {
+      return false;
+    }
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -215,6 +306,9 @@ function createRunController(): {
     settle = resolve;
     fail = reject;
   });
+  // Failures can arrive (via process exit) before anything awaits the
+  // outcome; keep the rejection from being reported as unhandled.
+  outcome.catch(() => undefined);
 
   return {
     outcome,

@@ -56,7 +56,7 @@ These are requirements, not suggestions:
 - Conversations persist in pi's shared session store. Nazar tracks its own session lineage and never resumes another session implicitly.
 - The plugin renders every tool execution visibly and provides cancel. There is no approval gate in the plugin; if one is ever needed it is built as a pi extension shared by TUI and plugin.
 - Failures stop visibly. Missing `pi`, handshake failure, and protocol errors surface the binary tried and pi's stderr tail without changing files.
-- The plugin binary lookup is `PATH` first with an optional explicit path setting; nothing else.
+- The plugin binary lookup is an explicit path setting, then PATH, then the stable pi install locations; desktop sessions often do not inherit the shell PATH. Nothing else.
 
 ## Change discipline
 

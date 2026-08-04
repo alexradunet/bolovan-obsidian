@@ -153,7 +153,7 @@ class NazarSettingTab extends PluginSettingTab {
     new Setting(this.containerEl)
       .setName("pi binary path")
       .setDesc(
-        "Absolute path to the pi executable. Leave empty to look up pi on PATH.",
+        "Absolute path to the pi executable. Leave empty to search PATH and the common pi install locations.",
       )
       .addText((text) => {
         text
