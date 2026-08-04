@@ -298,17 +298,40 @@
   box-shadow: 0 0 0 1px var(--interactive-accent);
 }
 
-.bolovan-panel__composer textarea {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
+.bolovan-panel__composer .bolovan-chat__editor {
   line-height: var(--line-height-normal);
   max-height: 15rem;
   min-height: 2.25rem;
+  overflow-wrap: anywhere;
   overflow-y: auto;
   padding: var(--size-4-1);
-  resize: none;
-  width: 100%;
+  white-space: pre-wrap;
+}
+
+.bolovan-chat__editor:empty::before {
+  color: var(--text-faint);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.bolovan-chat__mention-chip {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-smaller);
+  padding: 0 var(--size-4-1);
+  white-space: nowrap;
+}
+
+.bolovan-chat__mention-chip::before {
+  content: "\1F4CE ";
+}
+
+.bolovan-chat__mention-chip:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
 }
 
 .bolovan-chat__context {
@@ -417,9 +440,8 @@
   content: "\1F4CE ";
 }
 
-.bolovan-panel__composer textarea:focus {
-  border: 0;
-  box-shadow: none;
+.bolovan-panel__composer .bolovan-chat__editor:focus {
+  outline: none;
 }
 
 .bolovan-panel.is-running .bolovan-panel__composer {

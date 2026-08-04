@@ -3,6 +3,8 @@ import {
   buildPromptWithNotes,
   matchNoteCandidates,
   MAX_ATTACHMENT_CHARS,
+  mentionLabel,
+  mentionTokenAt,
   parseMentionLinkpaths,
   splitAttachedNotes,
   type NoteCandidate,
@@ -113,5 +115,40 @@ describe("matchNoteCandidates", () => {
 
   it("drops non-matches", () => {
     expect(matchNoteCandidates(notes, "zzz")).toEqual([]);
+  });
+});
+
+describe("mentionTokenAt", () => {
+  it("finds the token starting at the last @ before the caret", () => {
+    expect(mentionTokenAt("see @jou", 8)).toEqual({ start: 4, end: 8, query: "jou" });
+  });
+
+  it("accepts an empty query right after @", () => {
+    expect(mentionTokenAt("@", 1)).toEqual({ start: 0, end: 1, query: "" });
+  });
+
+  it("requires @ to start at a token boundary", () => {
+    expect(mentionTokenAt("email@site", 10)).toBeUndefined();
+  });
+
+  it("ignores completed mentions with brackets", () => {
+    expect(mentionTokenAt("@[[Note]] ", 10)).toBeUndefined();
+  });
+
+  it("stops at newlines", () => {
+    expect(mentionTokenAt("@a\nb", 4)).toBeUndefined();
+  });
+});
+
+describe("mentionLabel", () => {
+  const unique = { path: "00-Inbox/Today.md", basename: "Today" };
+  const duplicated = { path: "01-Journal/Today.md", basename: "Today" };
+
+  it("uses the basename when it is unique", () => {
+    expect(mentionLabel(unique, [unique])).toBe("Today");
+  });
+
+  it("falls back to the linkpath when the basename is ambiguous", () => {
+    expect(mentionLabel(duplicated, [unique, duplicated])).toBe("01-Journal/Today");
   });
 });

@@ -23,7 +23,7 @@ export const MAX_ATTACHMENT_CHARS = 40_000;
 const CONTEXT_OPEN = "<bolovan-attached-notes>";
 const CONTEXT_CLOSE = "</bolovan-attached-notes>";
 const NOTE_OPEN = /<bolovan-note path="([^"]+)">/g;
-const MENTION = /@\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
+export const MENTION_PATTERN = /@\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
 
 /** Prepend the attached notes block to the user's message. */
 export function buildPromptWithNotes(text: string, notes: NoteAttachment[]): string {
@@ -66,13 +66,50 @@ export function splitAttachedNotes(prompt: string): SplitPrompt {
 /** Linkpaths of @[[mention]] markers, in order of appearance. */
 export function parseMentionLinkpaths(text: string): string[] {
   const linkpaths: string[] = [];
-  for (const match of text.matchAll(MENTION)) {
+  for (const match of text.matchAll(MENTION_PATTERN)) {
     const linkpath = (match[1] ?? "").trim();
     if (linkpath) {
       linkpaths.push(linkpath);
     }
   }
   return linkpaths;
+}
+
+export interface MentionToken {
+  start: number;
+  end: number;
+  query: string;
+}
+
+/**
+ * The mention being typed at the caret, if any: an `@` at a token boundary
+ * whose query has no newline or brackets. Brackets mean the mention is
+ * already complete, so the picker stays away from finished mentions.
+ */
+export function mentionTokenAt(text: string, caret: number): MentionToken | undefined {
+  const upto = text.slice(0, caret);
+  const atIndex = upto.lastIndexOf("@");
+  if (atIndex < 0) {
+    return undefined;
+  }
+  const before = upto.charAt(atIndex - 1);
+  if (before !== "" && !/\s/.test(before)) {
+    return undefined;
+  }
+  const query = upto.slice(atIndex + 1);
+  if (query.includes("\n") || query.includes("[") || query.includes("]") || query.length > 80) {
+    return undefined;
+  }
+  return { start: atIndex, end: caret, query };
+}
+
+/** Basename when unique in the vault, full linkpath otherwise. */
+export function mentionLabel(note: NoteCandidate, all: NoteCandidate[]): string {
+  const sameName = all.filter((other) => other.basename === note.basename);
+  if (sameName.length <= 1) {
+    return note.basename;
+  }
+  return note.path.replace(/\.md$/, "");
 }
 
 /**
