@@ -346,6 +346,7 @@ function systemPrompt(instructions: string): string {
     "You are Bolovan, an AI agent built into Obsidian.",
     "Use only the provided vault tools for vault access. Read relevant files before proposing changes.",
     "Use vault_change for every mutation; the user sees and approves the exact operation.",
+    "You may read and search the plugin's own source under .obsidian/plugins/bolovan; you can never modify .obsidian.",
     "Use [[wikilinks]] when referring to vault notes. Never claim a change succeeded before its tool result.",
     instructions.trim(),
   ].filter(Boolean).join("\n\n");

@@ -8,7 +8,7 @@ function fakeApp(initial: Record<string, string>): { app: any; files: Map<string
   const vault = {
     getFileByPath: file,
     getAbstractFileByPath: file,
-    getFolderByPath: () => ({ children: [] }),
+    getFolderByPath: () => null,
     getRoot: () => ({ children: [] }),
     getMarkdownFiles: () => [...files.keys()].map((path) => ({ path })),
     cachedRead: async (target: { path: string }) => files.get(target.path) ?? "",
@@ -23,6 +23,28 @@ function fakeApp(initial: Record<string, string>): { app: any; files: Map<string
       return { path };
     },
     createFolder: async () => undefined,
+    adapter: {
+      exists: async (path: string) => files.has(path) || [...files.keys()].some((child) => child.startsWith(`${path}/`)),
+      read: async (path: string) => files.get(path) ?? "",
+      list: async (path: string) => {
+        const prefix = `${path}/`;
+        const folders = new Set<string>();
+        const filesHere: string[] = [];
+        for (const child of files.keys()) {
+          if (!child.startsWith(prefix)) {
+            continue;
+          }
+          const rest = child.slice(prefix.length);
+          const slash = rest.indexOf("/");
+          if (slash === -1) {
+            filesHere.push(child);
+          } else {
+            folders.add(`${prefix}${rest.slice(0, slash)}`);
+          }
+        }
+        return { files: filesHere, folders: [...folders] };
+      },
+    },
   };
   return { app: { vault, fileManager: { renameFile: async () => undefined } }, files };
 }
@@ -76,5 +98,29 @@ describe("VaultTools exact changes", () => {
 
     expect(result).toMatchObject({ isError: true });
     expect((result as any).content).toContain("does not modify Obsidian configuration or plugin code");
+  });
+
+  it("reads and lists the plugin's own source through the adapter", async () => {
+    const { app, files } = fakeApp({ ".obsidian/plugins/bolovan/src/vault-tools.ts": "source code" });
+    const tools = new VaultTools(app);
+
+    const read = await tools.execute("vault_read", { path: ".obsidian/plugins/bolovan/src/vault-tools.ts" });
+    const payload = JSON.parse((read as { content: string }).content);
+    expect(payload).toMatchObject({
+      path: ".obsidian/plugins/bolovan/src/vault-tools.ts",
+      content: "source code",
+    });
+
+    const listed = await tools.execute("vault_list", { path: ".obsidian/plugins/bolovan/src" });
+    const entries = JSON.parse((listed as { content: string }).content).entries;
+    expect(entries).toContainEqual({
+      path: ".obsidian/plugins/bolovan/src/vault-tools.ts",
+      type: "file",
+    });
+
+    files.delete(".obsidian/plugins/bolovan/src/vault-tools.ts");
+    const missing = await tools.execute("vault_read", { path: ".obsidian/plugins/bolovan/src/vault-tools.ts" });
+    expect(missing).toMatchObject({ isError: true });
+    expect((missing as { content: string }).content).toContain("File not found");
   });
 });

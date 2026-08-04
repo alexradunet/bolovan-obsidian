@@ -170,11 +170,11 @@ These are requirements, not suggestions:
 - Bolovan owns its harness. Providers vary behind `ModelAdapter`; Vault behavior varies behind the four-tool adapter. See `docs/adr/0001-native-cross-platform-harness.md`.
 - Supported providers are OpenAI, advanced OpenAI-compatible endpoints, and local Transformers.js WebGPU. Local inference has no CPU/WASM fallback.
 - Runs are user-triggered and single-flight. Completed-response rendering is the portable guarantee; streaming is optional enhancement behavior.
-- Vault access uses only Obsidian `Vault`, `MetadataCache`, and `FileManager` APIs. Stable exposes only `vault_read`, `vault_search`, `vault_list`, and `vault_change`.
+- Vault access uses only Obsidian `Vault`, `MetadataCache`, `FileManager`, and `Vault.adapter` (read-only, for `.obsidian`) APIs. Stable exposes only `vault_read`, `vault_search`, `vault_list`, and `vault_change`. The plugin's own source under `.obsidian/plugins/bolovan` is readable; every write under `.obsidian` stays refused. See `docs/adr/0002-read-only-self-inspection.md`.
 - Every mutation requires an exact preview and explicit approval. The commit rechecks the source hash; stale approvals write nothing.
 - The portable brain is a visible configurable vault folder identified by `bolovan-brain.json`. Secrets, provider profiles, caches, device identity, and approval state stay device-local.
 - Conversation files are device-owned branches. Never append to another device's branch and never automatically merge sync conflicts.
-- `web_search`, shell access, raw filesystem access, external brain folders, and plugin self-modification are outside the stable milestone.
+- `web_search`, shell access, raw filesystem access, and external brain folders are outside the stable milestone. Plugin self-modification stays sealed for writes; reading the plugin's own source is allowed.
 
 ## Change discipline
 

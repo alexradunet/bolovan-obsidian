@@ -12,7 +12,7 @@ Provider profiles, secrets, model caches, the device id, and the selected conver
 
 ## Vault capabilities
 
-The harness exposes four tools: read a file, search notes, list a folder, and change a file. Every change displays the exact resulting content or move for approval. The commit then rechecks the note's SHA-256; if it changed after preview, nothing is written.
+The harness exposes four tools: read a file, search notes, list a folder, and change a file. Every change displays the exact resulting content or move for approval. The commit then rechecks the note's SHA-256; if it changed after preview, nothing is written. The agent can read and list its own plugin source under `.obsidian/plugins/bolovan`, but every write under `.obsidian` stays refused.
 
 The default brain folder is `system/Bolovan` and can be changed in settings. A manifest lets another device auto-discover it. Instructions, skills, prompts, and device-owned conversation branches sync as ordinary vault files. Concurrent branches are preserved and never automatically merged.
 

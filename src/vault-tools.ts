@@ -47,13 +47,13 @@ export class VaultTools {
   async execute(name: string, args: Record<string, unknown>): Promise<ToolResult | ChangePreview> {
     try {
       if (name === "vault_read") {
-        return await this.read(requireString(args, "path"));
+        return await this.read(rawPath(args.path));
       }
       if (name === "vault_search") {
         return await this.search(requireString(args, "query"), boundedLimit(args.limit));
       }
       if (name === "vault_list") {
-        return this.list(optionalString(args.path));
+        return await this.list(optionalString(args.path));
       }
       if (name === "vault_change") {
         return await this.prepareChange(args);
@@ -66,6 +66,16 @@ export class VaultTools {
 
   private async read(rawPath: string): Promise<ToolResult> {
     const path = safePath(rawPath);
+    // Obsidian's Vault API never exposes .obsidian; reads there use the
+    // adapter directly. Writes stay sealed: only vault_change is refused.
+    if (path.startsWith(".obsidian")) {
+      const adapter = this.app.vault.adapter;
+      if (!(await adapter.exists(path))) {
+        return { content: `File not found: ${path}`, isError: true };
+      }
+      const content = await adapter.read(path);
+      return { content: JSON.stringify({ path, hash: await sha256(content), content }) };
+    }
     const file = this.app.vault.getFileByPath(path);
     if (!file) {
       return { content: `File not found: ${path}`, isError: true };
@@ -96,8 +106,21 @@ export class VaultTools {
     return { content: JSON.stringify({ query, results, cappedAt: limit }) };
   }
 
-  private list(rawPath: string): ToolResult {
+  private async list(rawPath: string): Promise<ToolResult> {
     const path = rawPath ? safePath(rawPath) : "";
+    // Same exception as vault_read: Obsidian's Vault API hides .obsidian.
+    if (path.startsWith(".obsidian")) {
+      const adapter = this.app.vault.adapter;
+      if (!(await adapter.exists(path))) {
+        return { content: `Folder not found: ${path}`, isError: true };
+      }
+      const listed = await adapter.list(path);
+      const entries = [
+        ...listed.folders.map((child) => ({ path: child, type: "folder" })),
+        ...listed.files.map((child) => ({ path: child, type: "file" })),
+      ];
+      return { content: JSON.stringify({ path, entries }) };
+    }
     const folder = path ? this.app.vault.getFolderByPath(path) : this.app.vault.getRoot();
     if (!folder) {
       return { content: `Folder not found: ${path}`, isError: true };
@@ -111,9 +134,12 @@ export class VaultTools {
 
   private async prepareChange(args: Record<string, unknown>): Promise<ChangePreview> {
     const action = requireString(args, "action");
-    const path = safePath(requireString(args, "path"));
     if (!["create", "replace", "append", "move", "archive"].includes(action)) {
       throw new Error(`Unsupported vault_change action: ${action}`);
+    }
+    const path = safePath(requireString(args, "path"));
+    if (path === ".obsidian" || path.startsWith(".obsidian/")) {
+      throw new Error("Bolovan stable does not modify Obsidian configuration or plugin code");
     }
 
     const existing = this.app.vault.getFileByPath(path);
@@ -248,10 +274,16 @@ function safePath(value: string): string {
   if (!normalized || normalized === "." || normalized.startsWith("../") || normalized.includes("/../")) {
     throw new Error(`Invalid vault path: ${value}`);
   }
-  if (normalized === ".obsidian" || normalized.startsWith(".obsidian/")) {
-    throw new Error("Bolovan stable does not modify Obsidian configuration or plugin code");
-  }
   return normalized;
+}
+
+// .obsidian paths bypass the traversal checks: vault_read and vault_list may
+// reach them, but vault_change refuses them before any preview or write.
+function rawPath(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("path must be a non-empty string");
+  }
+  return value;
 }
 
 function requireString(args: Record<string, unknown>, key: string, allowEmpty = false): string {
