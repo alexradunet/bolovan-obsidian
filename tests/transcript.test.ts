@@ -248,6 +248,22 @@ describe("Transcript live events", () => {
     });
   });
 
+  it("keeps a vault search query as its display target", () => {
+    const transcript = new Transcript();
+
+    transcript.apply({
+      type: "tool-start",
+      name: "vault_search",
+      args: { query: "project ideas" },
+    });
+
+    expect(transcript.all()[0]).toMatchObject({
+      kind: "tool",
+      name: "vault_search",
+      target: "project ideas",
+    });
+  });
+
   it("adds a final item when a tool end arrives without a start", () => {
     const transcript = new Transcript();
 

@@ -22,6 +22,14 @@ const THINKING_LEVELS: ReadonlyArray<{ id: ThinkingEffort; name: string }> = [
   { id: "max", name: "Maximum — highest quality and latency" },
 ];
 
+export type DisplayMode = "icon" | "name" | "both";
+
+const DISPLAY_MODE_OPTIONS: Record<DisplayMode, string> = {
+  icon: "Icon",
+  name: "Name",
+  both: "Icon and name",
+};
+
 interface BolovanSettings {
   model: string;
   thinkingEffort: ThinkingEffort;
@@ -30,6 +38,8 @@ interface BolovanSettings {
   deviceId: string;
   activeBranch?: string;
   includeActiveNote: boolean;
+  toolDisplayMode: DisplayMode;
+  toolActionDisplayMode: DisplayMode;
   modelList: string[];
 }
 
@@ -41,6 +51,8 @@ const DEFAULT_SETTINGS: BolovanSettings = {
   deviceId: "",
   includeActiveNote: true,
   modelList: [],
+  toolDisplayMode: "icon",
+  toolActionDisplayMode: "name",
 };
 
 export default class BolovanPlugin extends Plugin {
@@ -137,6 +149,22 @@ export default class BolovanPlugin extends Plugin {
   async setIncludeActiveNote(include: boolean): Promise<void> {
     this.bolovanSettings.includeActiveNote = include;
     await this.saveSettings();
+  }
+
+  async setDisplayMode(
+    key: "toolDisplayMode" | "toolActionDisplayMode",
+    mode: DisplayMode,
+  ): Promise<void> {
+    if (!isDisplayMode(mode)) {
+      return;
+    }
+    this.bolovanSettings[key] = mode;
+    await this.saveSettings();
+    for (const leaf of this.app.workspace.getLeavesOfType(BOLOVAN_CHAT_VIEW)) {
+      if (leaf.view instanceof BolovanChatView) {
+        leaf.view.refreshToolDisplay();
+      }
+    }
   }
 
   async setModel(model: string): Promise<void> {
@@ -296,6 +324,10 @@ class BolovanSettingTab extends PluginSettingTab {
       case "brainFolder":
         await this.plugin.setBrainFolder(value);
         return;
+      case "toolDisplayMode":
+      case "toolActionDisplayMode":
+        await this.plugin.setDisplayMode(key, value as DisplayMode);
+        return;
     }
   }
 
@@ -381,6 +413,24 @@ class BolovanSettingTab extends PluginSettingTab {
           validate: validBrainFolder,
         },
       },
+      {
+        name: "Tool call appearance",
+        desc: "Choose whether transcript tool calls show their icon, friendly name, or both.",
+        control: {
+          type: "dropdown" as const,
+          key: "toolDisplayMode",
+          options: DISPLAY_MODE_OPTIONS,
+        },
+      },
+      {
+        name: "Tool action appearance",
+        desc: "Choose whether actions such as Preview and Open show their icon, name, or both.",
+        control: {
+          type: "dropdown" as const,
+          key: "toolActionDisplayMode",
+          options: DISPLAY_MODE_OPTIONS,
+        },
+      },
     ];
   }
 
@@ -426,6 +476,12 @@ function knownSettings(loaded: Partial<BolovanSettings> | undefined): Partial<Bo
   copyKnownKey(result, loaded, "activeBranch");
   copyKnownKey(result, loaded, "includeActiveNote");
   copyKnownKey(result, loaded, "modelList");
+  if (isDisplayMode(loaded.toolDisplayMode)) {
+    result.toolDisplayMode = loaded.toolDisplayMode;
+  }
+  if (isDisplayMode(loaded.toolActionDisplayMode)) {
+    result.toolActionDisplayMode = loaded.toolActionDisplayMode;
+  }
   return result;
 }
 
@@ -438,6 +494,10 @@ function copyKnownKey<K extends keyof BolovanSettings>(
   if (value !== undefined) {
     result[key] = value;
   }
+}
+
+function isDisplayMode(value: unknown): value is DisplayMode {
+  return value === "icon" || value === "name" || value === "both";
 }
 
 function describeError(error: unknown): string {

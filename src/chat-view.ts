@@ -16,6 +16,21 @@ export const BOLOVAN_CHAT_VIEW = "bolovan-chat-view";
 
 const RENDER_THROTTLE_MS = 120;
 const THINKING_MARKDOWN = "*Thinking…*";
+const TOOL_REGISTRY: Record<string, { icon: string; name: string }> = {
+  vault_read: { icon: "📄", name: "Read note" },
+  vault_search: { icon: "🔍", name: "Search vault" },
+  vault_list: { icon: "📁", name: "List folder" },
+  vault_change: { icon: "✏️", name: "Change note" },
+  web_read: { icon: "🌐", name: "Read webpage" },
+};
+
+type ToolAction = "preview" | "hide" | "open";
+
+const TOOL_ACTION_REGISTRY: Record<ToolAction, { icon: string; name: string }> = {
+  preview: { icon: "eye", name: "Preview" },
+  hide: { icon: "eye-off", name: "Hide" },
+  open: { icon: "external-link", name: "Open" },
+};
 
 /**
  * Sidebar chat over Bolovan's Obsidian-native harness. The view is a thin
@@ -104,6 +119,19 @@ export class BolovanChatView extends ItemView {
   /** External entry point for plugin commands (e.g. summarize active note). */
   focusComposer(): void {
     this.composer.focus();
+  }
+
+  /** Repaint existing tool calls after a display preference changes. */
+  refreshToolDisplay(): void {
+    for (const item of this.transcript.all()) {
+      if (item.kind !== "tool") {
+        continue;
+      }
+      const el = this.itemEls.get(item.id);
+      if (el) {
+        this.paintItem(item, el);
+      }
+    }
   }
 
   private buildLayout(): void {
@@ -286,22 +314,32 @@ export class BolovanChatView extends ItemView {
       status?.setText(item.status === "running" ? "…" : item.status === "done" ? "✓" : "✗");
       if (label) {
         label.empty();
-        label.setAttr("title", item.target ? `${item.name} · ${item.target}` : item.name);
-        label.createSpan({ text: item.name });
-        if (item.target) {
-          label.createSpan({ text: " · " });
-          const targetText = item.target.slice(0, 80);
+        const display = toolDisplay(item.name, item.target);
+        const mode = this.plugin.config.toolDisplayMode ?? "icon";
+        label.setAttr("title", display.description);
+        label.setAttr("aria-label", display.description);
+        if (mode !== "name") {
+          label.createSpan({
+            cls: "bolovan-tool__icon",
+            text: display.icon,
+            attr: { "aria-hidden": "true" },
+          });
+        }
+        if (mode !== "icon") {
+          label.createSpan({ cls: "bolovan-tool__name", text: display.name });
+        }
+        if (display.target) {
           // A tool target that is an existing note becomes a link that opens
           // it — created and edited files are one click away.
           const note = this.resolveNote(item.target);
           if (note) {
             label.createEl("a", {
               cls: "internal-link bolovan-tool__link",
-              text: targetText,
+              text: display.target,
               attr: { href: "#", "data-href": note.path },
             });
           } else {
-            label.createSpan({ text: targetText });
+            label.createSpan({ text: display.target });
           }
         }
         this.paintWebActions(item, el);
@@ -332,61 +370,87 @@ export class BolovanChatView extends ItemView {
     el.setText(item.text);
   }
   private paintWebActions(item: Extract<TranscriptItem, { kind: "tool" }>, el: HTMLElement): void {
-    const existing = el.querySelector(".bolovan-tool__actions");
+    let actions = el.querySelector(".bolovan-tool__actions") as HTMLElement | null;
     const url = item.name === "web_read" && item.status === "done"
       ? webPreviewUrl(item.target)
       : undefined;
     if (!url) {
-      existing?.remove();
+      actions?.remove();
       el.querySelector(".bolovan-tool__preview")?.remove();
       el.removeClass("is-expanded");
       return;
     }
-    if (existing) {
-      return;
-    }
 
-    const actions = el.createDiv({ cls: "bolovan-tool__actions" });
-    const previewButton = actions.createEl("button", {
-      cls: "bolovan-tool__action",
-      text: "Preview",
-      attr: { "aria-expanded": "false" },
-    });
-    previewButton.addEventListener("click", () => {
-      const openPreview = el.querySelector(".bolovan-tool__preview");
-      if (openPreview) {
-        openPreview.remove();
-        previewButton.setText("Preview");
-        previewButton.setAttr("aria-expanded", "false");
-        el.removeClass("is-expanded");
-        return;
-      }
+    if (!actions) {
+      actions = el.createDiv({ cls: "bolovan-tool__actions" });
+      const previewButton = actions.createEl("button", {
+        cls: "bolovan-tool__action",
+        attr: { "data-action": "preview" },
+      });
+      previewButton.addEventListener("click", () => {
+        const openPreview = el.querySelector(".bolovan-tool__preview");
+        if (openPreview) {
+          openPreview.remove();
+          el.removeClass("is-expanded");
+        } else {
+          el.createEl("iframe", {
+            cls: "bolovan-tool__preview",
+            attr: {
+              src: url,
+              title: `Preview of ${new URL(url).hostname}`,
+              loading: "lazy",
+              referrerpolicy: "no-referrer",
+              sandbox: "allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts",
+            },
+          });
+          el.addClass("is-expanded");
+          this.scrollToBottom(false);
+        }
+        this.paintToolAction(
+          previewButton,
+          el.querySelector(".bolovan-tool__preview") ? "hide" : "preview",
+        );
+        previewButton.setAttr(
+          "aria-expanded",
+          Boolean(el.querySelector(".bolovan-tool__preview")),
+        );
+      });
 
-      el.createEl("iframe", {
-        cls: "bolovan-tool__preview",
+      actions.createEl("a", {
+        cls: "bolovan-tool__action",
         attr: {
-          src: url,
-          title: `Preview of ${new URL(url).hostname}`,
-          loading: "lazy",
-          referrerpolicy: "no-referrer",
-          sandbox: "allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts",
+          "data-action": "open",
+          href: url,
+          target: "_blank",
+          rel: "noopener noreferrer",
         },
       });
-      el.addClass("is-expanded");
-      previewButton.setText("Hide");
-      previewButton.setAttr("aria-expanded", "true");
-      this.scrollToBottom(false);
-    });
+    }
 
-    actions.createEl("a", {
-      cls: "bolovan-tool__action",
-      text: "Open",
-      attr: {
-        href: url,
-        target: "_blank",
-        rel: "noopener noreferrer",
-      },
-    });
+    const previewButton = actions.querySelector('[data-action="preview"]') as HTMLElement | null;
+    const openLink = actions.querySelector('[data-action="open"]') as HTMLElement | null;
+    const previewOpen = Boolean(el.querySelector(".bolovan-tool__preview"));
+    if (previewButton) {
+      this.paintToolAction(previewButton, previewOpen ? "hide" : "preview");
+      previewButton.setAttr("aria-expanded", previewOpen);
+    }
+    if (openLink) {
+      this.paintToolAction(openLink, "open");
+    }
+  }
+
+  private paintToolAction(el: HTMLElement, action: ToolAction): void {
+    const display = TOOL_ACTION_REGISTRY[action];
+    const mode = this.plugin.config.toolActionDisplayMode ?? "name";
+    el.empty();
+    el.setAttr("aria-label", display.name);
+    el.setAttr("title", display.name);
+    if (mode !== "name") {
+      setIcon(el, display.icon);
+    }
+    if (mode !== "icon") {
+      el.appendText(display.name);
+    }
   }
 
   private scheduleAssistantPaint(id: string): void {
@@ -782,6 +846,22 @@ function webPreviewUrl(value: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function toolDisplay(
+  name: string,
+  target: string,
+): { icon: string; name: string; target: string; description: string } {
+  const tool = TOOL_REGISTRY[name] ?? { icon: "🛠️", name: "Tool call" };
+  let conciseTarget = target.slice(0, 80);
+  if (name === "web_read") {
+    const url = webPreviewUrl(target);
+    conciseTarget = url ? new URL(url).hostname.replace(/^www\./i, "") : "";
+  }
+  const description = conciseTarget
+    ? `${tool.name}: ${conciseTarget}`
+    : tool.name;
+  return { ...tool, target: conciseTarget, description };
 }
 
 /** Fuzzy note chooser behind the composer's paperclip button. */
