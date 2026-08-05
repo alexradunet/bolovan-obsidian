@@ -68,6 +68,10 @@ export class BrainStore {
     return this.activePath;
   }
 
+  skillFolderPath(): string {
+    return `${this.folder}/Skills`;
+  }
+
   messages(): ModelMessage[] {
     return [...(this.activePath ? this.branches.get(this.activePath)?.messages ?? [] : [])];
   }

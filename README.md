@@ -12,6 +12,8 @@ The harness exposes four vault tools: read a file, search notes, list a folder, 
 
 The default brain folder is `system/Bolovan` and can be changed in settings. A manifest lets another device auto-discover it. Instructions, skills, and device-owned conversation branches sync as ordinary vault files. Concurrent branches are preserved and never automatically merged.
 
+Bolovan can turn a reusable procedure from the conversation into a skill under the brain's `Skills` folder. It may propose a skill after a successful non-trivial workflow, a useful correction, or recovery from failure. Skill creation and updates use the same exact-preview approval as other vault changes, and skills can only describe how to use capabilities Bolovan already has.
+
 The composer can attach the active note and any `[[wikilink]]` mentions. Paste an HTTP or HTTPS link into a message and Bolovan can fetch it through Obsidian's cross-platform network API, extract readable text, and use that text to answer. Tool calls are visible in the transcript, runs are cancellable, and conversations can be resumed from the session picker.
 
 ## Development

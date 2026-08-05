@@ -14,3 +14,5 @@
 - **Attachment** — a note whose contents are inlined into one outgoing user message.
 - **Mention** — a `[[note]]` link in the composer that resolves to an attachment at send time.
 - **Read-only self-inspection** — the agent may read and list its own plugin source under `.obsidian/plugins/bolovan`, but never modify anything under `.obsidian`.
+
+- **Skill** — portable procedural memory stored as Markdown under the brain's `Skills` folder. Bolovan may propose creating or refining a skill from observed reusable experience, but the exact write requires approval and grants no new tool authority.

@@ -140,3 +140,75 @@ describe("BolovanAgent tool loop", () => {
     expect(agent.status().isRunning).toBe(false);
   });
 });
+
+describe("BolovanAgent self-developed skills", () => {
+  it("loads an approved skill on the next model round", async () => {
+    const app = fakeApp();
+    const systemPrompts: string[] = [];
+    const skillContent = [
+      "# Reusable review",
+      "",
+      "## When to use",
+      "Use after completing a review.",
+      "",
+      "## Procedure",
+      "1. Read the subject.",
+      "2. Report concrete findings.",
+      "",
+      "## Pitfalls",
+      "- Do not guess.",
+      "",
+      "## Verification",
+      "Confirm every finding cites observed content.",
+    ].join("\n");
+    let requestCount = 0;
+    const transport: RequestTransport = async (request) => {
+      requestCount += 1;
+      const body = JSON.parse(String(request.body)) as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      systemPrompts.push(body.messages.find((message) => message.role === "system")?.content ?? "");
+      const message = requestCount === 1
+        ? {
+            content: "",
+            tool_calls: [{
+              id: "create-skill",
+              function: {
+                name: "vault_change",
+                arguments: JSON.stringify({
+                  action: "create",
+                  path: "Brain/Skills/reusable-review.md",
+                  content: skillContent,
+                }),
+              },
+            }],
+          }
+        : { content: "Learned the reusable review skill." };
+      return {
+        status: 200,
+        headers: {},
+        arrayBuffer: new ArrayBuffer(0),
+        text: "",
+        json: { choices: [{ message }] },
+      };
+    };
+    const agent = new BolovanAgent({
+      app,
+      brainFolder: "Brain",
+      deviceId: "local",
+      provider: () => ({ model: "test-model" }),
+      requestTransport: transport,
+    });
+    agent.setApprovalResponder((request) => agent.respondApproval(request.id, true));
+
+    await agent.ask("Learn this review procedure for next time.");
+
+    const skill = app.vault.getFileByPath("Brain/Skills/reusable-review.md");
+    expect(skill).not.toBeNull();
+    expect(await app.vault.cachedRead(skill!)).toBe(skillContent);
+    expect(systemPrompts[0]).toContain("Brain/Skills/<kebab-case>.md");
+    expect(systemPrompts[0]).toContain("Treat a rewrite as a candidate, not proof");
+    expect(systemPrompts[1]).toContain("## Skill: reusable-review");
+    expect(systemPrompts[1]).toContain(skillContent);
+  });
+});
