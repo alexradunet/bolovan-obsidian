@@ -112,6 +112,18 @@
   align-self: stretch;
   color: var(--text-normal);
 }
+.bolovan-message--assistant pre {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  overflow-x: auto;
+  padding: var(--size-4-3);
+}
+
+.bolovan-message--assistant pre > code {
+  background: transparent;
+  padding: 0;
+}
 
 .bolovan-message--assistant > :first-child {
   margin-top: 0;
