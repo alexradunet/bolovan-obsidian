@@ -1,10 +1,8 @@
 import type { RequestUrlParam, RequestUrlResponse } from "obsidian";
 
-export type ProviderKind = "openai" | "openai-compatible";
 export type ThinkingEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface ProviderConfig {
-  kind: ProviderKind;
   model: string;
   baseUrl?: string;
   apiKey?: string;
@@ -77,8 +75,7 @@ class OpenAiCompatibleAdapter implements ModelAdapter {
       tools: tools.map((tool) => ({ type: "function", function: tool })),
       tool_choice: "auto",
     };
-    if (this.config.thinkingEffort &&
-        (this.config.kind === "openai" || this.config.thinkingEffort !== "none")) {
+    if (this.config.thinkingEffort && this.config.thinkingEffort !== "none") {
       body.reasoning_effort = this.config.thinkingEffort;
     }
 

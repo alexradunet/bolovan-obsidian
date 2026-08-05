@@ -49,7 +49,6 @@ export interface BolovanAgentStatus {
 }
 
 export interface BolovanModelState {
-  provider: string;
   modelId: string;
   thinkingLevel: string;
   activeBranch: string | undefined;
@@ -142,14 +141,13 @@ export class BolovanAgent {
 
     try {
       const previous = this.brain.modelInfo();
-      if (previous && this.brain.messages().length > 0 &&
-          (previous.provider !== provider.kind || previous.model !== provider.model)) {
+      if (previous && this.brain.messages().length > 0 && previous.model !== provider.model) {
         await this.brain.append([{
           role: "system",
-          content: `Provider changed: ${previous.provider}/${previous.model} → ${provider.kind}/${provider.model}`,
-        }], provider.kind, provider.model);
+          content: `Model changed: ${previous.model} → ${provider.model}`,
+        }], provider.model);
       }
-      await this.brain.append([{ role: "user", content: prompt }], provider.kind, provider.model);
+      await this.brain.append([{ role: "user", content: prompt }], provider.model);
       await this.runLoop(this.controller.signal, provider);
       this.emit({ type: "settled" });
     } catch (error) {
@@ -194,7 +192,6 @@ export class BolovanAgent {
   async getState(): Promise<BolovanModelState> {
     const provider = this.options.provider();
     return {
-      provider: provider.kind,
       modelId: provider.model,
       thinkingLevel: provider.thinkingEffort ?? "none",
       activeBranch: this.brain.activeBranchPath(),
@@ -218,7 +215,7 @@ export class BolovanAgent {
   async newSession(): Promise<string | undefined> {
     await this.start();
     const provider = this.options.provider();
-    return this.brain.newConversation(provider.kind, provider.model);
+    return this.brain.newConversation(provider.model);
   }
 
   async switchSession(path: string): Promise<void> {
@@ -252,7 +249,7 @@ export class BolovanAgent {
         content: reply.text,
         toolCalls: reply.toolCalls.length ? reply.toolCalls : undefined,
       };
-      await this.brain.append([assistant], provider.kind, provider.model);
+      await this.brain.append([assistant], provider.model);
       if (reply.text) {
         this.emit({ type: "text", delta: reply.text });
       }
@@ -272,7 +269,7 @@ export class BolovanAgent {
             role: "tool",
             content: result.content,
             toolCallId: call.id,
-          }], provider.kind, provider.model);
+          }], provider.model);
         }
         continue;
       }
@@ -281,7 +278,6 @@ export class BolovanAgent {
       if (steering.length) {
         await this.brain.append(
           steering.map((content) => ({ role: "user" as const, content })),
-          provider.kind,
           provider.model,
         );
         continue;

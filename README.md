@@ -1,13 +1,10 @@
 # Bolovan
 
-Bolovan is an AI agent built directly into Obsidian. Install the plugin, choose a provider, and work with the vault from the sidebar on desktop or mobile—no external agent or native executable required.
+Bolovan is an AI agent built directly into Obsidian. Install the plugin, configure a model endpoint, and work with the vault from the sidebar on desktop or mobile—no external agent or native executable required.
 
-## Providers
+## Model endpoint
 
-- **OpenAI** — enter an API key in Bolovan settings. The key is stored in Obsidian SecretStorage on the current device.
-- **OpenAI-compatible** — advanced configuration for a custom `/v1` endpoint implementing Chat Completions and function tools.
-
-Provider profiles, secrets, the device id, and the selected conversation branch are device-local. Portable agent knowledge and conversations live in the synced brain folder.
+Bolovan talks to one OpenAI-compatible endpoint. Configure the base URL, model name, and an API key in Bolovan settings. The key is stored in Obsidian SecretStorage on the current device. Endpoint configuration, secrets, the device id, and the selected conversation branch are device-local. Portable agent knowledge and conversations live in the synced brain folder.
 
 ## Vault capabilities
 

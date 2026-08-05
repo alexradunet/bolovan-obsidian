@@ -137,11 +137,11 @@ describe("Transcript history mapping", () => {
     const transcript = new Transcript();
 
     transcript.loadHistory([
-      { role: "system", content: "Provider changed to local WebGPU" },
+      { role: "system", content: "Model changed: gpt-5.6-luna → gpt-5.6-sol" },
     ]);
 
     expect(transcript.all()).toHaveLength(1);
-    expect(transcript.all()[0]).toMatchObject({ kind: "system", text: "Provider changed to local WebGPU" });
+    expect(transcript.all()[0]).toMatchObject({ kind: "system", text: "Model changed: gpt-5.6-luna → gpt-5.6-sol" });
   });
 
   it("replaces previous items when loading a different session", () => {

@@ -3,7 +3,7 @@
   "name": "Bolovan",
   "version": "0.4.0",
   "minAppVersion": "1.13.4",
-  "description": "A cross-platform AI agent built into Obsidian, with OpenAI and OpenAI-compatible providers.",
+  "description": "A cross-platform AI agent built into Obsidian, configured with an OpenAI-compatible endpoint.",
   "author": "Alex Radunet",
   "authorUrl": "https://github.com/alexradunet",
   "isDesktopOnly": false

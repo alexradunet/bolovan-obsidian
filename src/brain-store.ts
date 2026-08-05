@@ -17,7 +17,6 @@ interface ConversationBranch {
   createdAt: string;
   modifiedAt: string;
   title: string;
-  provider: string;
   model: string;
   messages: ModelMessage[];
 }
@@ -76,9 +75,9 @@ export class BrainStore {
     return [...(this.activePath ? this.branches.get(this.activePath)?.messages ?? [] : [])];
   }
 
-  modelInfo(): { provider: string; model: string } | undefined {
+  modelInfo(): { model: string } | undefined {
     const branch = this.activePath ? this.branches.get(this.activePath) : undefined;
-    return branch ? { provider: branch.provider, model: branch.model } : undefined;
+    return branch ? { model: branch.model } : undefined;
   }
 
   list(): ConversationSummary[] {
@@ -91,10 +90,9 @@ export class BrainStore {
       .sort((a, b) => b.modifiedMs - a.modifiedMs);
   }
 
-  async append(messages: ModelMessage[], provider: string, model: string): Promise<void> {
-    const branch = await this.writableBranch(provider, model);
+  async append(messages: ModelMessage[], model: string): Promise<void> {
+    const branch = await this.writableBranch(model);
     branch.messages.push(...messages);
-    branch.provider = provider;
     branch.model = model;
     branch.modifiedAt = new Date().toISOString();
     if (branch.title === "New conversation") {
@@ -104,7 +102,7 @@ export class BrainStore {
     await this.writeActive(branch);
   }
 
-  async newConversation(provider: string, model: string): Promise<string> {
+  async newConversation(model: string): Promise<string> {
     const now = new Date().toISOString();
     const conversationId = id("conversation");
     const branch: ConversationBranch = {
@@ -115,7 +113,6 @@ export class BrainStore {
       createdAt: now,
       modifiedAt: now,
       title: "New conversation",
-      provider,
       model,
       messages: [],
     };
@@ -151,9 +148,9 @@ export class BrainStore {
     return sections.join("\n\n").slice(0, 120_000);
   }
 
-  private async writableBranch(provider: string, model: string): Promise<ConversationBranch> {
+  private async writableBranch(model: string): Promise<ConversationBranch> {
     if (!this.activePath) {
-      await this.newConversation(provider, model);
+      await this.newConversation(model);
     }
     const current = this.activePath ? this.branches.get(this.activePath) : undefined;
     if (!current) {

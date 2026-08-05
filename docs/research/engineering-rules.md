@@ -5,24 +5,24 @@ Decision record updated: 2026-08-05
 
 ## Question and method
 
-What coding rules let Bolovan remain a small, understandable, Pareto-focused Obsidian plugin while it safely supports remote models and local WebGPU inference on desktop and mobile?
+What coding rules let Bolovan remain a small, understandable, Pareto-focused Obsidian plugin while it safely supports remote models on desktop and mobile?
 
-This note distinguishes facts owned by primary sources from recommendations inferred for Bolovan. Sources are limited to Obsidian's documentation and public API definitions, the WebGPU specification, the official Transformers.js and ONNX Runtime documentation, the two author-owned cognitive-load documents requested for the project's mythos, and the Bolovan repository itself.
+This note distinguishes facts owned by primary sources from recommendations inferred for Bolovan. Sources are limited to Obsidian's documentation and public API definitions, the two author-owned cognitive-load documents requested for the project's mythos, and the Bolovan repository itself.
 
 ## Executive conclusion
 
 The current direction is sound, but the slogans need precise boundaries.
 
-Bolovan should optimize the common end-to-end user outcome, not literal line count. It should use public Obsidian APIs directly wherever they own the behavior, keep the two essential local-model runtimes behind one lazy boundary, and reject convenience dependencies. Safety, platform support, and truthful product promises are not Pareto-discardable edge cases.
+Bolovan should optimize the common end-to-end user outcome, not literal line count. It should use public Obsidian APIs directly wherever they own the behavior and reject convenience dependencies. Safety, platform support, and truthful product promises are not Pareto-discardable edge cases.
 
 "Fits in one head" is best enforced by few product concepts, local control flow, a short architectural reading path, and small interfaces around genuinely complex capabilities. Arbitrary function or file-size limits would work against the cited cognitive-load guidance.
 
 The follow-up design interview resolved the ambiguous boundaries. Bolovan will
 use approval based on ownership, expose path-bounded Obsidian customization
-capabilities, make the core harness a tested desktop/iOS/Android promise, treat
-local WebGPU as an essential capability-gated exception, admit dependencies
-only through an evidence test, retain scan-first search, promise processing
-rather than network cancellation, and enforce a concrete comprehension budget.
+capabilities, make the core harness a tested desktop/iOS/Android promise, admit
+dependencies only through an evidence test, retain scan-first search, promise
+processing rather than network cancellation, and enforce a concrete
+comprehension budget.
 
 ## Source-backed facts
 
@@ -44,14 +44,7 @@ rather than network cancellation, and enforce a concrete comprehension budget.
 - Community-directory policy forbids client-side telemetry and self-updating plugin mechanisms. It requires README disclosure of network use, including which remote services are used and why, and requires compliance with licenses of reused code. [Developer policies](https://docs.obsidian.md/Developer+policies)
 - Community releases install `main.js`, `manifest.json`, and optional `styles.css` from a GitHub release whose tag matches the manifest version. [Submit your plugin](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin)
 
-### 3. WebGPU must be treated as a qualified capability
-
-- The WebGPU specification exposes the API only in a secure context. `requestAdapter()` may return `null` when the requested capability cannot be provided, and the specification recommends requesting the lowest supported feature level and inspecting optional capabilities. [WebGPU specification](https://gpuweb.github.io/gpuweb/#dom-gpu-requestadapter)
-- Transformers.js officially enables WebGPU inference by selecting `device: "webgpu"` and implements it in cooperation with ONNX Runtime Web. Its documentation explicitly warns that WebGPU may be unavailable and that behavior outside Chromium can be experimental. [Transformers.js WebGPU guide](https://huggingface.co/docs/transformers.js/guides/webgpu)
-- ONNX Runtime Web supports browser and Electron use. Its WebGPU execution provider has a dedicated import, may support only a subset of operators, and requires deliberate GPU resource lifecycle management. [ONNX Runtime Web overview](https://onnxruntime.ai/docs/tutorials/web/) and [WebGPU execution provider](https://onnxruntime.ai/docs/tutorials/web/ep-webgpu.html)
-- ONNX Runtime recommends conditional imports and shipping only the artifacts needed by the chosen execution provider because artifact size affects load time and memory. It also documents IndexedDB as an option for caching large downloaded model files. [Deploying ONNX Runtime Web](https://onnxruntime.ai/docs/tutorials/web/deploy.html)
-
-### 4. The cognitive-load documents support simplicity, not tiny-code dogma
+### 3. The cognitive-load documents support simplicity, not tiny-code dogma
 
 - The requested essay defines cognitive load informally as how much a developer must think to complete a task. It advocates named intermediate conditions, early returns, composition, deep modules with small interfaces, a limited language subset, self-describing values, restrained DRY, and avoiding unjustified architectural layers. It explicitly rejects arbitrary small-method/module rules. [Cognitive Load Is What Matters](https://github.com/zakirullin/cognitive-load/blob/main/README.md)
 - The agent-specific version turns those ideas into direct coding guidance: comments should explain motivation or a bird's-eye view, complex conditions should be named, early returns should expose the happy path, and a little duplication can be cheaper than a dependency. [Cognitive-load guidance for agents](https://github.com/zakirullin/cognitive-load/blob/main/README.agents.md)
@@ -67,9 +60,8 @@ These are direct observations of the repository on the date above, not claims ma
 - There is one intentional Adapter exception: `vault_read` and `vault_list` let the model inspect `.obsidian`, because hidden files are unavailable through `Vault`. Writes to `.obsidian` are blocked. [Vault tools](../../src/vault-tools.ts)
 - Model-initiated `replace` and `append` operations use exact preview plus a second in-process content check through `Vault.process`. Moves and archives recheck a SHA-256 before `FileManager.renameFile`. [Vault tools](../../src/vault-tools.ts)
 - The plugin also creates and modifies its own brain manifest, instructions, and conversation files without a per-write approval. Conversation updates currently use `Vault.modify`, not `Vault.process`. [Brain store](../../src/brain-store.ts)
-- Local inference has two bundled runtime dependencies: Transformers.js handles model/processor behavior and ONNX Runtime Web provides WebGPU execution. Both are loaded lazily behind one local-provider boundary. Versions are pinned exactly, but ONNX Runtime Web is currently a development snapshot. [Package manifest](../../package.json), [model adapter](../../src/model-adapter.ts), and [WebGPU runtime](../../src/webgpu-runtime.ts)
-- The lockfile currently resolves 212 `node_modules` entries, including optional native packages that are not referenced by the built browser bundle. The production `main.js` observed locally is about 613 KiB. Install-graph size and shipped-bundle size are therefore different budgets and should be reviewed separately. [Lockfile](../../package-lock.json) and [build configuration](../../esbuild.config.mjs)
-- Unit tests cover transcript behavior, context, model adaptation, vault mutation checks, and WebGPU runtime loading; a built-plugin smoke test checks that the bundle loads with an Obsidian stub. There is no automated real-Obsidian desktop/mobile test in the current suite. [Tests](../../tests/)
+- The manifest carries no runtime dependencies; only development tooling is installed. Install-graph size and shipped-bundle size should be reviewed separately. [Package manifest](../../package.json) and [build configuration](../../esbuild.config.mjs)
+- Unit tests cover transcript behavior, context, model adaptation, and vault mutation checks; a built-plugin smoke test checks that the bundle loads with an Obsidian stub. There is no automated real-Obsidian desktop/mobile test in the current suite. [Tests](../../tests/)
 
 ## Recommendations and inferences for the engineering mythos
 
@@ -139,9 +131,6 @@ A new runtime dependency is allowed only when all are true:
 5. Its exact version is pinned when compatibility is sensitive, and the lockfile is reviewed.
 6. A removal or replacement path is clear enough to describe in a few sentences.
 
-Transformers.js and ONNX Runtime Web pass this test in principle because local transformer inference, tokenization, model loading, and WebGPU graph execution are specialized core capabilities. Their exception should remain narrow: one curated model path, lazy loading, no general ML framework exposed to the rest of Bolovan, no silent CPU fallback, and no additional model stack without demonstrated value.
-
-The development-snapshot ONNX version deserves an explicit compatibility rationale and upgrade test. Exact pinning reduces surprise but does not turn an unstable upstream artifact into a stable one.
 
 ### 6. Make safety boundaries semantic
 
@@ -163,7 +152,7 @@ Replace the ambiguous phrase "every mutation requires approval" with a rule that
 - Add a small release smoke matrix for the minimum supported Obsidian version,
   current desktop, iOS, and Android while `isDesktopOnly: false` remains a hard
   support promise.
-- Exercise WebGPU absence, adapter-null, model-download failure, device loss/disposal, and remote-provider failure. A local model's happy path cannot establish cross-device compatibility by itself.
+- Exercise remote-provider failure and sync-conflicted branch state. A provider happy path cannot establish cross-device compatibility by itself.
 - Measure plugin startup and bundle/runtime artifact size at releases; do not optimize speculative micro-costs.
 
 ## Decisions confirmed in the design interview
@@ -178,22 +167,19 @@ Replace the ambiguous phrase "every mutation requires approval" with a rule that
    APIs, and never receives unrestricted hidden-directory access.
 3. **Core mobile support is a tested promise.** Remote inference, vault and
    configuration tools, conversations, and approvals require desktop, iOS, and
-   Android smoke coverage. Local WebGPU is available only on compatible devices.
-4. **Local WebGPU is essential.** Transformers.js and ONNX Runtime Web receive a
-   permanent narrow exception: one curated model path, one lazy boundary, exact
-   compatibility-sensitive pins, explicit upgrade tests, and no CPU fallback.
-5. **Dependencies require evidence.** A runtime dependency must enable an
+   Android smoke coverage.
+4. **Dependencies require evidence.** A runtime dependency must enable an
    approved essential outcome unavailable from Obsidian or the Web Platform;
    be safer than local code; pass license, maintenance, security, mobile,
    transitive, and bundle review; stay narrowly lazy; describe its removal path;
    and record the justification. Convenience packages are rejected.
-6. **Search remains scan-first.** Indexing requires a reproducible desktop and
+5. **Search remains scan-first.** Indexing requires a reproducible desktop and
    mobile benchmark showing direct scanning violates an agreed interaction
    budget. Any index is disposable derived state.
-7. **Cancellation claims are honest.** Stop ends processing immediately and
+6. **Cancellation claims are honest.** Stop ends processing immediately and
    rejects late results. It does not promise to terminate an underlying
    `requestUrl` request, though an adapter may do so where supported.
-8. **Comprehension has review alarms.** Keep the architecture to roughly ten
+7. **Comprehension has review alarms.** Keep the architecture to roughly ten
    named concepts on one page, common actions within four production modules,
    and routine changes within one policy module plus tests. Crossing four
    production modules triggers simplification review or a short justification;

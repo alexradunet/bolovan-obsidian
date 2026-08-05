@@ -24,7 +24,7 @@ describe("OpenAI-compatible model adapter", () => {
       };
     };
     const adapter = createModelAdapter(
-      { kind: "openai", model: "test-model", apiKey: "secret", thinkingEffort: "high" },
+      { model: "test-model", apiKey: "secret", thinkingEffort: "high" },
       transport,
     );
 
@@ -58,7 +58,7 @@ describe("OpenAI-compatible model adapter", () => {
       };
     };
     const adapter = createModelAdapter(
-      { kind: "openai-compatible", model: "local", thinkingEffort: "none" },
+      { model: "local", thinkingEffort: "none" },
       transport,
     );
 
@@ -76,7 +76,7 @@ describe("OpenAI-compatible model adapter", () => {
       json: { error: { message: "Invalid API key" } },
     });
     const adapter = createModelAdapter(
-      { kind: "openai-compatible", model: "model", baseUrl: "https://local.test/v1" },
+      { model: "model", baseUrl: "https://local.test/v1" },
       transport,
     );
 

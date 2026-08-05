@@ -60,7 +60,7 @@ working on the plugin.
 
 - `src/main.ts` — plugin lifecycle, device-local settings, and settings UI
 - `src/bolovan-agent.ts` — harness orchestration and tool loop
-- `src/model-adapter.ts` — remote and local provider adapters
+- `src/model-adapter.ts` — the OpenAI-compatible model adapter
 - `src/brain-store.ts` — portable brain and conversation persistence
 - `src/vault-tools.ts` — the four Obsidian-native vault tools and approvals
 - `src/chat-view.ts`, `src/composer.ts`, `src/context.ts` — user interface and note attachments
@@ -75,8 +75,8 @@ working on the plugin.
 - Run `npm run build` for a typecheck and production bundle.
 - Keep setup reproducible from a fresh standalone clone using the documented
   Node.js version and lockfile.
-- Do not use the surrounding personal vault, live credentials, downloaded
-  models, or provider accounts as test fixtures.
+- Do not use the surrounding personal vault, live credentials, or provider
+  accounts as test fixtures.
 - Use a disposable synthetic or dedicated development vault for runtime
   integration checks on every machine.
 - Keep generated output and dependency changes intentional. If dependencies
@@ -178,8 +178,6 @@ is allowed only when every condition below is met:
 - A little obvious duplication is cheaper than a shared abstraction or package
   that couples unrelated behavior.
 - Remove dependencies that no longer justify their cost.
-- Keep provider-specific heavy dependencies behind the narrowest practical
-  boundary and load them only when their provider needs them.
 - Reject convenience helpers, state frameworks, formatting packages,
   dependency-injection libraries, and thin wrappers over native APIs.
 
@@ -234,9 +232,9 @@ These are requirements, not suggestions:
   configuration capabilities, conversations, and approvals are supported on
   desktop, iOS, and Android. Do not import Node built-ins or depend on native
   processes.
-- Bolovan owns its harness. Providers vary behind `ModelAdapter`; Vault behavior varies behind the four-tool adapter. See `docs/adr/0001-native-cross-platform-harness.md`.
-- Supported providers are OpenAI and advanced OpenAI-compatible endpoints.
-  Local on-device inference was removed in v0.4 (ADR 0003); reintroducing it
+- Bolovan owns its harness. Model configuration lives behind `ModelAdapter`; Vault behavior varies behind the four-tool adapter. See `docs/adr/0001-native-cross-platform-harness.md`.
+- The only supported model configuration is a single OpenAI-compatible
+  endpoint. The bundled model runtime was removed in v0.4; reintroducing it
   requires the full dependency admission test again.
 - Runs are user-triggered and single-flight. Completed-response rendering is the portable guarantee; streaming is optional enhancement behavior.
 - Vault behavior uses Obsidian `Vault`, `MetadataCache`, and `FileManager` APIs.
@@ -249,7 +247,7 @@ These are requirements, not suggestions:
   manifest, branch metadata, and conversation transcripts—does not require a
   separate approval. It stays in documented locations, and model output never
   chooses its destination or operation.
-- The portable brain is a visible configurable vault folder identified by `bolovan-brain.json`. Secrets, provider profiles, caches, device identity, and approval state stay device-local.
+- The portable brain is a visible configurable vault folder identified by `bolovan-brain.json`. Secrets, model endpoint configuration, caches, device identity, and approval state stay device-local.
 - Conversation files are device-owned branches. Never append to another device's branch and never automatically merge sync conflicts.
 - Stop ends Bolovan's processing immediately: late provider responses cannot
   update the transcript, execute tools, or resume the run. The portable contract

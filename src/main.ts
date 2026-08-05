@@ -10,14 +10,9 @@ import {
 } from "obsidian";
 import { BOLOVAN_CHAT_VIEW, BolovanChatView } from "./chat-view";
 import { BolovanAgent } from "./bolovan-agent";
-import type { ProviderConfig, ProviderKind, ThinkingEffort } from "./model-adapter";
+import type { ProviderConfig, ThinkingEffort } from "./model-adapter";
 
 const API_KEY_SECRET = "bolovan-openai-api-key";
-const OPENAI_MODELS = [
-  { id: "gpt-5.6-sol", name: "GPT-5.6 Sol — highest capability" },
-  { id: "gpt-5.6-terra", name: "GPT-5.6 Terra — balanced" },
-  { id: "gpt-5.6-luna", name: "GPT-5.6 Luna — fastest and lowest cost" },
-] as const;
 const THINKING_LEVELS: ReadonlyArray<{ id: ThinkingEffort; name: string }> = [
   { id: "none", name: "None — lowest latency" },
   { id: "low", name: "Low" },
@@ -28,7 +23,6 @@ const THINKING_LEVELS: ReadonlyArray<{ id: ThinkingEffort; name: string }> = [
 ];
 
 interface BolovanSettings {
-  providerKind: ProviderKind;
   model: string;
   thinkingEffort: ThinkingEffort;
   baseUrl: string;
@@ -39,7 +33,6 @@ interface BolovanSettings {
 }
 
 const DEFAULT_SETTINGS: BolovanSettings = {
-  providerKind: "openai",
   model: "gpt-5.6-terra",
   thinkingEffort: "medium",
   baseUrl: "https://api.openai.com/v1",
@@ -144,14 +137,6 @@ export default class BolovanPlugin extends Plugin {
     await this.saveSettings();
   }
 
-  async setProviderKind(kind: ProviderKind): Promise<void> {
-    this.bolovanSettings.providerKind = kind;
-    if (kind === "openai") {
-      this.bolovanSettings.baseUrl = "https://api.openai.com/v1";
-    }
-    await this.saveSettings();
-  }
-
   async setModel(model: string): Promise<void> {
     this.bolovanSettings.model = model.trim();
     await this.saveSettings();
@@ -223,11 +208,9 @@ export default class BolovanPlugin extends Plugin {
   }
 
   private providerConfig(): ProviderConfig {
-    const kind = this.bolovanSettings.providerKind;
     return {
-      kind,
       model: this.bolovanSettings.model,
-      baseUrl: kind === "openai" ? "https://api.openai.com/v1" : this.bolovanSettings.baseUrl,
+      baseUrl: this.bolovanSettings.baseUrl,
       apiKey: this.app.secretStorage.getSecret(API_KEY_SECRET) ?? undefined,
       thinkingEffort: this.bolovanSettings.thinkingEffort,
     };
@@ -296,10 +279,6 @@ class BolovanSettingTab extends PluginSettingTab {
     }
     // Every setter owns its validation and persistence; the tab only routes.
     switch (key) {
-      case "providerKind":
-        await this.plugin.setProviderKind(value as ProviderKind);
-        this.update();
-        return;
       case "model":
         await this.plugin.setModel(value);
         return;
@@ -316,20 +295,7 @@ class BolovanSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    const kind = this.plugin.config.providerKind;
     return [
-      {
-        name: "Provider",
-        desc: "OpenAI works immediately with an API key. Compatible endpoints are advanced.",
-        control: {
-          type: "dropdown",
-          key: "providerKind",
-          options: {
-            openai: "OpenAI",
-            "openai-compatible": "OpenAI-compatible",
-          },
-        },
-      },
       {
         name: "API key",
         desc: "Stored in Obsidian SecretStorage on this device; never written into the vault or synced.",
@@ -355,25 +321,20 @@ class BolovanSettingTab extends PluginSettingTab {
       {
         name: "Base URL",
         desc: "The endpoint root ending in /v1. It must implement OpenAI Chat Completions and function tools.",
-        visible: () => this.plugin.config.providerKind === "openai-compatible",
         control: {
           type: "text",
           key: "baseUrl",
-          placeholder: "https://example.test/v1",
+          placeholder: "https://api.openai.com/v1",
         },
       },
       {
         name: "Model",
-        desc: modelDescription(kind),
-        control: kind === "openai-compatible"
-          ? { type: "text" as const, key: "model", placeholder: "model-name" }
-          : { type: "dropdown" as const, key: "model", options: modelOptions(kind, this.plugin.config.model) },
+        desc: "Model ID exposed by the endpoint.",
+        control: { type: "text", key: "model", placeholder: "model-name" },
       },
       {
         name: "Thinking effort",
-        desc: kind === "openai"
-          ? "Controls reasoning depth. Higher levels can improve difficult work but increase latency and token use."
-          : "Sent as reasoning_effort when enabled. Choose None if your endpoint does not support it.",
+        desc: "Sent as reasoning_effort when enabled. Choose None if your endpoint does not support it.",
         control: {
           type: "dropdown" as const,
           key: "thinkingEffort",
@@ -394,23 +355,6 @@ class BolovanSettingTab extends PluginSettingTab {
   }
 }
 
-function modelDescription(kind: ProviderKind): string {
-  if (kind === "openai") {
-    return "Choose the active OpenAI model. Terra is the balanced default.";
-  }
-  return "Model ID exposed by your OpenAI-compatible server.";
-}
-
-function modelOptions(kind: ProviderKind, savedModel: string): Record<string, string> {
-  const choices = [...OPENAI_MODELS];
-  const options: Record<string, string> = Object.fromEntries(
-    choices.map((choice) => [choice.id, choice.name] as [string, string]),
-  );
-  if (!options[savedModel]) {
-    options[savedModel] = `${savedModel} — saved model`;
-  }
-  return options;
-}
 
 /** Inline mirror of setBrainFolder's validation; the setter stays authoritative. */
 function validBrainFolder(folder: string): string | void {
@@ -425,15 +369,10 @@ function knownSettings(loaded: Partial<BolovanSettings> | undefined): Partial<Bo
     return {};
   }
   const result: Partial<BolovanSettings> = {};
-  for (const key of ["providerKind", "model", "thinkingEffort", "baseUrl", "brainFolder", "deviceId", "activeBranch", "includeActiveNote"] as const) {
+  for (const key of ["model", "thinkingEffort", "baseUrl", "brainFolder", "deviceId", "activeBranch", "includeActiveNote"] as const) {
     if (loaded[key] !== undefined) {
       (result as any)[key] = loaded[key];
     }
-  }
-  // v0 dropped the local WebGPU provider; a saved choice falls back to OpenAI.
-  if ((result.providerKind as string | undefined) === "webgpu") {
-    result.providerKind = "openai";
-    result.model = DEFAULT_SETTINGS.model;
   }
   return result;
 }
