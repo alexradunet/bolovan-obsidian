@@ -1,15 +1,12 @@
 import { App, FuzzySuggestModal, ItemView, MarkdownRenderer, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import type BolovanPlugin from "./main";
-import type { BolovanApprovalRequest, BolovanEvent } from "./bolovan-agent";
+import type {
+  BolovanApprovalRequest,
+  BolovanConversationSnapshot,
+  BolovanEvent,
+} from "./bolovan-agent";
 import { Composer } from "./composer";
-import {
-  buildPromptWithNotes,
-  MAX_ATTACHMENTS,
-  mentionLabel,
-  parseMentionLinkpaths,
-  type NoteAttachment,
-  type NoteCandidate,
-} from "./context";
+import { mentionLabel, prepareAttachments, type NoteCandidate } from "./context";
 import { Transcript, type TranscriptItem } from "./transcript";
 
 export const BOLOVAN_CHAT_VIEW = "bolovan-chat-view";
@@ -91,11 +88,10 @@ export class BolovanChatView extends ItemView {
 
     try {
       await this.plugin.startAgent();
-      await Promise.all([
-        this.populateSessionPicker(),
-        this.loadTranscript(),
-        this.refreshStats(),
-      ]);
+      if (agent) {
+        this.loadConversation(agent.conversation());
+      }
+      await this.refreshStats();
     } catch (error) {
       this.transcript.note(describeError(error));
     }
@@ -234,24 +230,16 @@ export class BolovanChatView extends ItemView {
 
   // ----- transcript adapter ----------------------------------------------
 
-  private async loadTranscript(): Promise<void> {
-    const agent = this.plugin.agent;
-    if (!agent) {
-      return;
-    }
-
+  private loadConversation(snapshot: BolovanConversationSnapshot): void {
     this.itemEls.clear();
     this.assistantPaintScheduled.clear();
     this.transcriptEl.empty();
     this.buildEmptyState();
     this.pinnedToBottom = true;
 
-    try {
-      this.transcript.loadHistory(await agent.getMessages());
-    } catch (error) {
-      this.transcript.note(describeError(error));
-    }
-    this.setRunning(agent.status().isRunning);
+    this.transcript.loadHistory(snapshot.messages);
+    this.populateSessionPicker(snapshot);
+    this.setRunning(this.plugin.agent?.status().isRunning ?? false);
     this.updateEmptyState();
     this.scrollToBottom(true);
   }
@@ -476,15 +464,23 @@ export class BolovanChatView extends ItemView {
   // ----- agent events ------------------------------------------------------
 
   private onAgentEvent(event: BolovanEvent): void {
+    if (event.type === "conversation") {
+      this.loadConversation(event.snapshot);
+      return;
+    }
+
 
     if (event.type === "settled") {
       this.transcript.apply(event);
       this.setRunning(false);
       this.scrollToBottom(true);
-      // Runs can also be triggered from outside the view (plugin commands);
-      // settled is the one signal that covers both.
+      // Runs can create or fork a Branch, so refresh its summaries from the
+      // same Harness snapshot used by explicit Conversation transitions.
+      const agent = this.plugin.agent;
+      if (agent) {
+        this.populateSessionPicker(agent.conversation());
+      }
       void this.refreshStats().catch(() => undefined);
-      void this.populateSessionPicker().catch(() => undefined);
       return;
     }
 
@@ -517,7 +513,11 @@ export class BolovanChatView extends ItemView {
     }
     this.composer.clear();
 
-    const { notes, warnings } = await this.collectAttachedNotes(text);
+    const { notes, warnings, prompt } = await prepareAttachments(
+      this.app,
+      text,
+      this.plugin.includeActiveNote ? this.plugin.activeNote() : undefined,
+    );
     this.transcript.say(text, notes.map((note) => note.path));
     for (const warning of warnings) {
       this.transcript.note(warning);
@@ -540,7 +540,6 @@ export class BolovanChatView extends ItemView {
         throw new Error("Bolovan is not ready");
       }
 
-      const prompt = buildPromptWithNotes(text, notes);
       if (agent.status().isRunning) {
         await agent.steer(prompt);
       } else {
@@ -552,53 +551,6 @@ export class BolovanChatView extends ItemView {
     }
   }
 
-  /**
-   * Gather the note contents attached to an outgoing message: the active
-   * note (when enabled) plus every resolvable [[mention]] in the text.
-   * Unresolvable mentions are reported but never block the send.
-   */
-  private async collectAttachedNotes(
-    text: string,
-  ): Promise<{ notes: NoteAttachment[]; warnings: string[] }> {
-    const notes: NoteAttachment[] = [];
-    const warnings: string[] = [];
-    const seen = new Set<string>();
-
-    const attach = async (file: TFile): Promise<void> => {
-      if (seen.has(file.path)) {
-        return;
-      }
-      seen.add(file.path);
-      if (notes.length >= MAX_ATTACHMENTS) {
-        warnings.push(`Attachment limit reached; ${file.path} was not attached.`);
-        return;
-      }
-      try {
-        const content = await this.app.vault.cachedRead(file);
-        notes.push({ path: file.path, content });
-      } catch (error) {
-        warnings.push(`Could not read ${file.path}: ${describeError(error)}`);
-      }
-    };
-
-    if (this.plugin.includeActiveNote) {
-      const activeNote = this.plugin.activeNote();
-      if (activeNote) {
-        await attach(activeNote);
-      }
-    }
-
-    for (const linkpath of parseMentionLinkpaths(text)) {
-      const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, "");
-      if (!file) {
-        warnings.push(`No note found for [[${linkpath}]] — sent without it.`);
-        continue;
-      }
-      await attach(file);
-    }
-
-    return { notes, warnings };
-  }
 
   /** All vault notes, newest first, as mention candidates. */
   private noteCandidates(): NoteCandidate[] {
@@ -716,15 +668,8 @@ export class BolovanChatView extends ItemView {
 
   // ----- controls ----------------------------------------------------------
 
-  private async populateSessionPicker(): Promise<void> {
-    const agent = this.plugin.agent;
-    if (!agent) {
-      return;
-    }
-
-    const sessions = agent.listSessions();
-    const current = agent.status().activeBranch;
-
+  private populateSessionPicker(snapshot: BolovanConversationSnapshot): void {
+    const { activeBranch, sessions } = snapshot;
     this.sessionSelectEl.empty();
     for (const session of sessions) {
       this.sessionSelectEl.createEl("option", {
@@ -732,23 +677,23 @@ export class BolovanChatView extends ItemView {
         text: session.label,
       });
     }
-    if (current && !sessions.some((session) => session.path === current)) {
-      this.sessionSelectEl.createEl("option", { value: current, text: "current session" });
+    if (activeBranch && !sessions.some((session) => session.path === activeBranch)) {
+      this.sessionSelectEl.createEl("option", { value: activeBranch, text: "current session" });
     }
-    if (current) {
-      this.sessionSelectEl.value = current;
+    if (activeBranch) {
+      this.sessionSelectEl.value = activeBranch;
     }
   }
 
   private async switchToSelectedSession(): Promise<void> {
     const agent = this.plugin.agent;
     const target = this.sessionSelectEl.value;
-    if (!agent || !target || target === agent.status().activeBranch) {
+    if (!agent || !target || target === agent.conversation().activeBranch) {
       return;
     }
     try {
       await agent.switchSession(target);
-      await Promise.all([this.loadTranscript(), this.refreshStats()]);
+      await this.refreshStats();
     } catch (error) {
       this.transcript.note(describeError(error));
     }
@@ -761,7 +706,7 @@ export class BolovanChatView extends ItemView {
     }
     try {
       await agent.newSession();
-      await Promise.all([this.loadTranscript(), this.populateSessionPicker(), this.refreshStats()]);
+      await this.refreshStats();
       this.composer.focus();
     } catch (error) {
       this.transcript.note(describeError(error));

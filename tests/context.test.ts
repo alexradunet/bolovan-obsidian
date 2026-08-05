@@ -6,9 +6,34 @@ import {
   mentionLabel,
   mentionTokenAt,
   parseMentionLinkpaths,
+  prepareAttachments,
   splitAttachedNotes,
   type NoteCandidate,
 } from "../src/context";
+import { fakeApp } from "./fake-app";
+
+describe("prepareAttachments", () => {
+  it("resolves, deduplicates, reads, warns, and prepares one prompt", async () => {
+    const app = fakeApp({
+      "Active.md": "active body",
+      "Mentioned.md": "mentioned body",
+    });
+    app.metadataCache.getFirstLinkpathDest = (linkpath) =>
+      app.vault.getFileByPath(`${linkpath}.md`);
+
+    const prepared = await prepareAttachments(
+      app,
+      "Compare [[Mentioned]], [[Active]], and [[Missing]].",
+      app.vault.getFileByPath("Active.md")!,
+    );
+
+    expect(prepared.notes.map((note) => note.path)).toEqual(["Active.md", "Mentioned.md"]);
+    expect(prepared.warnings).toEqual(["No note found for [[Missing]] — sent without it."]);
+    expect(prepared.prompt).toContain("active body");
+    expect(prepared.prompt).toContain("mentioned body");
+    expect(prepared.prompt.trimEnd().endsWith("Compare [[Mentioned]], [[Active]], and [[Missing]].")).toBe(true);
+  });
+});
 
 describe("buildPromptWithNotes", () => {
   it("returns the text unchanged without notes", () => {

@@ -1,8 +1,8 @@
 import type { App } from "obsidian";
 import type { RequestTransport, ToolDefinition } from "./model-adapter";
-import { VaultTools, VAULT_TOOL_DEFINITIONS } from "./vault-tools";
-import { WebContentReader, WEB_TOOL_DEFINITION } from "./web-content";
-import { WorkspaceTools, WORKSPACE_TOOL_DEFINITION } from "./workspace-tools";
+import { createVaultModelTools } from "./vault-tools";
+import { createWebModelTool } from "./web-content";
+import { createWorkspaceModelTool } from "./workspace-tools";
 
 export interface ToolResult {
   content: string;
@@ -15,9 +15,9 @@ export interface PreparedChange {
   apply(): Promise<ToolResult>;
 }
 
-type ToolOutcome = ToolResult | PreparedChange;
+export type ToolOutcome = ToolResult | PreparedChange;
 
-interface ModelTool {
+export interface ModelTool {
   definition: ToolDefinition;
   execute(args: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutcome>;
 }
@@ -28,22 +28,10 @@ export class ModelTools {
   private readonly tools: ReadonlyMap<string, ModelTool>;
 
   constructor(app: App, requestTransport: RequestTransport) {
-    const vault = new VaultTools(app);
-    const workspace = new WorkspaceTools(app);
-    const web = new WebContentReader(requestTransport);
     const tools: ModelTool[] = [
-      ...VAULT_TOOL_DEFINITIONS.map((definition) => ({
-        definition,
-        execute: (args: Record<string, unknown>, signal: AbortSignal) => vault.execute(definition.name, args, signal),
-      })),
-      {
-        definition: WORKSPACE_TOOL_DEFINITION,
-        execute: (args) => workspace.execute(args),
-      },
-      {
-        definition: WEB_TOOL_DEFINITION,
-        execute: (args, signal) => web.read(args.url, signal),
-      },
+      ...createVaultModelTools(app),
+      createWorkspaceModelTool(app),
+      createWebModelTool(requestTransport),
     ];
     this.definitions = tools.map((tool) => tool.definition);
     this.tools = new Map(tools.map((tool) => [tool.definition.name, tool]));

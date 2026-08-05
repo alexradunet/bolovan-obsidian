@@ -1,10 +1,10 @@
 import { MarkdownView, normalizePath, type App } from "obsidian";
 import type { ToolDefinition } from "./model-adapter";
-import type { ToolResult } from "./model-tools";
+import type { ModelTool, ToolResult } from "./model-tools";
 
 const MAX_SELECTION_CHARS = 40_000;
 
-export const WORKSPACE_TOOL_DEFINITION: ToolDefinition = {
+const WORKSPACE_TOOL_DEFINITION: ToolDefinition = {
   name: "workspace",
   description: "Read the active Markdown editor context or open a visible vault file when the user asks to navigate. Opening never replaces Bolovan's chat view.",
   parameters: {
@@ -19,6 +19,14 @@ export const WORKSPACE_TOOL_DEFINITION: ToolDefinition = {
     required: ["action"],
   },
 };
+export function createWorkspaceModelTool(app: App): ModelTool {
+  const workspace = new WorkspaceTools(app);
+  return {
+    definition: WORKSPACE_TOOL_DEFINITION,
+    execute: (args) => workspace.execute(args),
+  };
+}
+
 
 export class WorkspaceTools {
   constructor(private readonly app: App) {}

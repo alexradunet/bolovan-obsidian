@@ -1,10 +1,9 @@
+import type { App, TFile } from "obsidian";
+
 /**
- * Note attachments for outgoing prompts: pure formatting and parsing.
- * Bolovan inlines attached note contents into the user prompt so the model sees
- * them without spending tool calls or approvals; the same block is split
- * back out when session history is displayed. Notes containing the closing
- * marker would confuse the split — acceptable, the marker is deliberately
- * unusual.
+ * Attachments and Mentions for outgoing prompts. This module owns note
+ * resolution, bounds, reads, warnings, prompt formatting, history parsing,
+ * and Mention matching. The view only renders the result.
  */
 
 export interface NoteAttachment {
@@ -19,6 +18,52 @@ export interface NoteCandidate {
 
 export const MAX_ATTACHMENTS = 10;
 export const MAX_ATTACHMENT_CHARS = 40_000;
+export interface AttachmentPreparation {
+  notes: NoteAttachment[];
+  warnings: string[];
+  prompt: string;
+}
+
+export async function prepareAttachments(
+  app: App,
+  text: string,
+  activeNote?: TFile,
+): Promise<AttachmentPreparation> {
+  const notes: NoteAttachment[] = [];
+  const warnings: string[] = [];
+  const seen = new Set<string>();
+
+  const attach = async (file: TFile): Promise<void> => {
+    if (seen.has(file.path)) {
+      return;
+    }
+    seen.add(file.path);
+    if (notes.length >= MAX_ATTACHMENTS) {
+      warnings.push(`Attachment limit reached; ${file.path} was not attached.`);
+      return;
+    }
+    try {
+      notes.push({ path: file.path, content: await app.vault.cachedRead(file) });
+    } catch (error) {
+      warnings.push(`Could not read ${file.path}: ${describeError(error)}`);
+    }
+  };
+
+  if (activeNote) {
+    await attach(activeNote);
+  }
+  for (const linkpath of parseMentionLinkpaths(text)) {
+    const file = app.metadataCache.getFirstLinkpathDest(linkpath, "");
+    if (!file) {
+      warnings.push(`No note found for [[${linkpath}]] — sent without it.`);
+      continue;
+    }
+    await attach(file);
+  }
+
+  return { notes, warnings, prompt: buildPromptWithNotes(text, notes) };
+}
+
 
 const CONTEXT_OPEN = "<bolovan-attached-notes>";
 const CONTEXT_CLOSE = "</bolovan-attached-notes>";
@@ -157,4 +202,8 @@ function truncate(content: string): string {
     return content;
   }
   return `${content.slice(0, MAX_ATTACHMENT_CHARS)}\n[truncated by Bolovan]`;
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

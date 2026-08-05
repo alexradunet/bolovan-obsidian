@@ -8,14 +8,14 @@ import {
   type CachedMetadata,
 } from "obsidian";
 import type { ToolDefinition } from "./model-adapter";
-import type { PreparedChange, ToolResult } from "./model-tools";
+import type { ModelTool, PreparedChange, ToolResult } from "./model-tools";
 import { inspectStructuredFile, validateStructuredFile } from "./structured-files";
 
 const MAX_READ_CHARS = 40_000;
 const MAX_INSPECT_ITEMS = 100;
 
 
-export const VAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
+const VAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "vault_read",
     description: "Read bounded exact source from a Markdown, Canvas, Bases, or other text file. Select line numbers, a character offset, or a Markdown subpath.",
@@ -72,6 +72,14 @@ export const VAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }, ["action", "path"]),
   },
 ];
+export function createVaultModelTools(app: App): ModelTool[] {
+  const vault = new VaultTools(app);
+  return VAULT_TOOL_DEFINITIONS.map((definition) => ({
+    definition,
+    execute: (args, signal) => vault.execute(definition.name, args, signal),
+  }));
+}
+
 
 export class VaultTools {
   constructor(private readonly app: App) {}

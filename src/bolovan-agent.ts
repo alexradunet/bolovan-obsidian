@@ -21,11 +21,17 @@ export interface BolovanAgentOptions {
   onActiveBranch?(path: string): void;
   onBrainFolder?(folder: string): void;
 }
+interface ActiveRun {
+  controller: AbortController;
+  provider: ProviderConfig;
+}
+
 
 export type BolovanEvent =
   | { type: "text"; delta: string }
   | { type: "tool-start"; name: string; args: Record<string, unknown> }
   | { type: "tool-end"; name: string; isError: boolean }
+  | { type: "conversation"; snapshot: BolovanConversationSnapshot }
   | { type: "settled" }
   | { type: "exited"; message: string };
 
@@ -37,7 +43,12 @@ export interface BolovanApprovalRequest {
 
 export interface BolovanAgentStatus {
   isRunning: boolean;
+}
+
+export interface BolovanConversationSnapshot {
   activeBranch: string | undefined;
+  messages: ModelMessage[];
+  sessions: BolovanSessionSummary[];
 }
 
 export interface BolovanStats {
@@ -67,10 +78,9 @@ export class BolovanAgent {
   private listeners = new Set<(event: BolovanEvent) => void>();
   private approvalResponder: ((request: BolovanApprovalRequest) => void) | undefined;
   private approvals = new Map<string, (approved: boolean) => void>();
-  private controller: AbortController | undefined;
+  private activeRun: ActiveRun | undefined;
   private queuedSteering: string[] = [];
   private initialized = false;
-  private running = false;
   private totalTokens = 0;
   private inputTokens = 0;
   private outputTokens = 0;
@@ -105,7 +115,7 @@ export class BolovanAgent {
   }
 
   status(): BolovanAgentStatus {
-    return { isRunning: this.running, activeBranch: this.brain.activeBranchPath() };
+    return { isRunning: this.activeRun !== undefined };
   }
 
   async start(): Promise<void> {
@@ -113,28 +123,29 @@ export class BolovanAgent {
       await this.brain.initialize();
       this.initialized = true;
     }
-    this.ensureAdapter();
   }
 
   async ask(prompt: string): Promise<void> {
-    if (this.running) {
+    if (this.activeRun) {
       throw new Error("Bolovan is already running");
     }
     await this.start();
-    const provider = this.options.provider();
-    this.controller = new AbortController();
-    this.running = true;
+    const run: ActiveRun = {
+      controller: new AbortController(),
+      provider: this.options.provider(),
+    };
+    this.activeRun = run;
 
     try {
       const previous = this.brain.modelInfo();
-      if (previous && this.brain.messages().length > 0 && previous.model !== provider.model) {
+      if (previous && this.brain.messages().length > 0 && previous.model !== run.provider.model) {
         await this.brain.append([{
           role: "system",
-          content: `Model changed: ${previous.model} → ${provider.model}`,
-        }], provider.model);
+          content: `Model changed: ${previous.model} → ${run.provider.model}`,
+        }], run.provider.model);
       }
-      await this.brain.append([{ role: "user", content: prompt }], provider.model);
-      await this.runLoop(this.controller.signal, provider);
+      await this.brain.append([{ role: "user", content: prompt }], run.provider.model);
+      await this.runLoop(run);
       this.emit({ type: "settled" });
     } catch (error) {
       if (!isAbort(error)) {
@@ -143,13 +154,14 @@ export class BolovanAgent {
       }
       this.emit({ type: "settled" });
     } finally {
-      this.running = false;
-      this.controller = undefined;
+      if (this.activeRun === run) {
+        this.activeRun = undefined;
+      }
     }
   }
 
   async steer(message: string): Promise<void> {
-    if (!this.running) {
+    if (!this.activeRun) {
       await this.ask(message);
       return;
     }
@@ -157,7 +169,7 @@ export class BolovanAgent {
   }
 
   async cancel(): Promise<void> {
-    this.controller?.abort();
+    this.activeRun?.controller.abort();
     for (const resolve of this.approvals.values()) {
       resolve(false);
     }
@@ -170,9 +182,12 @@ export class BolovanAgent {
     this.listeners.clear();
   }
 
-
-  async getMessages(): Promise<ModelMessage[]> {
-    return this.brain.messages();
+  conversation(): BolovanConversationSnapshot {
+    return {
+      activeBranch: this.brain.activeBranchPath(),
+      messages: this.brain.messages(),
+      sessions: this.brain.list(),
+    };
   }
 
   async getStats(): Promise<BolovanStats> {
@@ -183,23 +198,22 @@ export class BolovanAgent {
     };
   }
 
-  async newSession(): Promise<string | undefined> {
+  async newSession(): Promise<BolovanConversationSnapshot> {
     await this.start();
     const provider = this.options.provider();
-    return this.brain.newConversation(provider.model);
+    await this.brain.newConversation(provider.model);
+    return this.publishConversation();
   }
 
-  async switchSession(path: string): Promise<void> {
+  async switchSession(path: string): Promise<BolovanConversationSnapshot> {
     await this.start();
     await this.brain.switch(path);
+    return this.publishConversation();
   }
 
-
-  listSessions(): BolovanSessionSummary[] {
-    return this.brain.list();
-  }
-
-  private async runLoop(signal: AbortSignal, provider: ProviderConfig): Promise<void> {
+  private async runLoop(run: ActiveRun): Promise<void> {
+    const { provider } = run;
+    const { signal } = run.controller;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       if (signal.aborted) {
         throw abortError();
@@ -287,13 +301,19 @@ export class BolovanAgent {
     });
   }
 
-  private ensureAdapter(provider = this.options.provider()): ModelAdapter {
+  private ensureAdapter(provider: ProviderConfig): ModelAdapter {
     const key = JSON.stringify(provider);
     if (!this.adapter || this.adapterKey !== key) {
       this.adapter = createModelAdapter(provider, this.options.requestTransport);
       this.adapterKey = key;
     }
     return this.adapter;
+  }
+
+  private publishConversation(): BolovanConversationSnapshot {
+    const snapshot = this.conversation();
+    this.emit({ type: "conversation", snapshot });
+    return snapshot;
   }
 
   private recordUsage(usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined): void {

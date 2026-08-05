@@ -42,7 +42,7 @@ describe("BolovanAgent cancellation", () => {
     });
     await run;
 
-    expect(await agent.getMessages()).toEqual([{ role: "user", content: "hello" }]);
+    expect(agent.conversation().messages).toEqual([{ role: "user", content: "hello" }]);
     expect(events).toEqual([{ type: "settled" }]);
     expect(agent.status().isRunning).toBe(false);
   });
@@ -91,7 +91,7 @@ describe("BolovanAgent cancellation", () => {
     await run;
 
     expect(requestCount).toBe(1);
-    expect(await agent.getMessages()).not.toContainEqual(
+    expect(agent.conversation().messages).not.toContainEqual(
       expect.objectContaining({ role: "tool" }),
     );
   });
@@ -138,6 +138,71 @@ describe("BolovanAgent tool loop", () => {
       message: "Bolovan stopped after 12 tool rounds",
     });
     expect(agent.status().isRunning).toBe(false);
+  });
+});
+
+describe("BolovanAgent Run lifecycle", () => {
+  it("uses one Model endpoint snapshot for the whole Run", async () => {
+    let providerCalls = 0;
+    let requestedModel = "";
+    const agent = new BolovanAgent({
+      app: fakeApp(),
+      brainFolder: "Brain",
+      deviceId: "local",
+      provider: () => ({ model: `model-${++providerCalls}` }),
+      requestTransport: async (request) => {
+        const body: unknown = JSON.parse(String(request.body));
+        if (!body || typeof body !== "object" || !("model" in body) || typeof body.model !== "string") {
+          throw new Error("Expected a model in the provider request");
+        }
+        requestedModel = body.model;
+        return {
+          status: 200,
+          headers: {},
+          arrayBuffer: new ArrayBuffer(0),
+          text: "",
+          json: { choices: [{ message: { content: "done" } }] },
+        };
+      },
+    });
+
+    await agent.ask("hello");
+
+    expect(providerCalls).toBe(1);
+    expect(requestedModel).toBe("model-1");
+  });
+});
+
+describe("BolovanAgent Conversation transitions", () => {
+  it("returns and emits one coherent active Branch snapshot", async () => {
+    const agent = new BolovanAgent({
+      app: fakeApp(),
+      brainFolder: "Brain",
+      deviceId: "local",
+      provider: () => ({ model: "test-model" }),
+      requestTransport: async () => {
+        throw new Error("unused");
+      },
+    });
+    const published: string[] = [];
+    agent.subscribe((event) => {
+      if (event.type === "conversation" && event.snapshot.activeBranch) {
+        published.push(event.snapshot.activeBranch);
+      }
+    });
+
+    const first = await agent.newSession();
+    const second = await agent.newSession();
+    const switched = await agent.switchSession(first.activeBranch!);
+
+    expect(first.messages).toEqual([]);
+    expect(second.sessions).toHaveLength(2);
+    expect(switched.activeBranch).toBe(first.activeBranch);
+    expect(published).toEqual([
+      first.activeBranch,
+      second.activeBranch,
+      first.activeBranch,
+    ]);
   });
 });
 
