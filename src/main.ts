@@ -2,7 +2,6 @@ import {
   App,
   MarkdownView,
   Notice,
-  Platform,
   Plugin,
   PluginSettingTab,
   requestUrl,
@@ -19,10 +18,6 @@ const OPENAI_MODELS = [
   { id: "gpt-5.6-terra", name: "GPT-5.6 Terra — balanced" },
   { id: "gpt-5.6-luna", name: "GPT-5.6 Luna — fastest and lowest cost" },
 ] as const;
-const LOCAL_WEBGPU_MODEL = {
-  id: "onnx-community/Qwen3.5-0.8B-ONNX-OPT",
-  name: "Qwen 3.5 0.8B OPT — local WebGPU",
-} as const;
 const THINKING_LEVELS: ReadonlyArray<{ id: ThinkingEffort; name: string }> = [
   { id: "none", name: "None — lowest latency" },
   { id: "low", name: "Low" },
@@ -151,13 +146,8 @@ export default class BolovanPlugin extends Plugin {
 
   async setProviderKind(kind: ProviderKind): Promise<void> {
     this.bolovanSettings.providerKind = kind;
-    if (kind !== "webgpu" && this.bolovanSettings.model.startsWith("onnx-community/")) {
-      this.bolovanSettings.model = "gpt-5.6-terra";
-    }
     if (kind === "openai") {
       this.bolovanSettings.baseUrl = "https://api.openai.com/v1";
-    } else if (kind === "webgpu") {
-      this.bolovanSettings.model = LOCAL_WEBGPU_MODEL.id;
     }
     await this.saveSettings();
   }
@@ -238,7 +228,7 @@ export default class BolovanPlugin extends Plugin {
       kind,
       model: this.bolovanSettings.model,
       baseUrl: kind === "openai" ? "https://api.openai.com/v1" : this.bolovanSettings.baseUrl,
-      apiKey: kind === "webgpu" ? undefined : this.app.secretStorage.getSecret(API_KEY_SECRET) ?? undefined,
+      apiKey: this.app.secretStorage.getSecret(API_KEY_SECRET) ?? undefined,
       thinkingEffort: this.bolovanSettings.thinkingEffort,
     };
   }
@@ -330,21 +320,19 @@ class BolovanSettingTab extends PluginSettingTab {
     return [
       {
         name: "Provider",
-        desc: "OpenAI works immediately with an API key. Compatible endpoints are advanced. Local uses WebGPU only.",
+        desc: "OpenAI works immediately with an API key. Compatible endpoints are advanced.",
         control: {
           type: "dropdown",
           key: "providerKind",
           options: {
             openai: "OpenAI",
             "openai-compatible": "OpenAI-compatible",
-            webgpu: "Local WebGPU",
           },
         },
       },
       {
         name: "API key",
         desc: "Stored in Obsidian SecretStorage on this device; never written into the vault or synced.",
-        visible: () => this.plugin.config.providerKind !== "webgpu",
         render: (setting) => {
           setting.addText((text) => {
             text.inputEl.type = "password";
@@ -381,26 +369,16 @@ class BolovanSettingTab extends PluginSettingTab {
           ? { type: "text" as const, key: "model", placeholder: "model-name" }
           : { type: "dropdown" as const, key: "model", options: modelOptions(kind, this.plugin.config.model) },
       },
-      kind === "webgpu"
-        ? {
-            name: "Thinking effort",
-            desc: "The current local WebGPU model does not expose configurable thinking effort.",
-          }
-        : {
-            name: "Thinking effort",
-            desc: kind === "openai"
-              ? "Controls reasoning depth. Higher levels can improve difficult work but increase latency and token use."
-              : "Sent as reasoning_effort when enabled. Choose None if your endpoint does not support it.",
-            control: {
-              type: "dropdown" as const,
-              key: "thinkingEffort",
-              options: Object.fromEntries(THINKING_LEVELS.map((level) => [level.id, level.name])),
-            },
-          },
       {
-        name: "WebGPU status",
-        desc: webGpuDescription(),
-        visible: () => this.plugin.config.providerKind === "webgpu",
+        name: "Thinking effort",
+        desc: kind === "openai"
+          ? "Controls reasoning depth. Higher levels can improve difficult work but increase latency and token use."
+          : "Sent as reasoning_effort when enabled. Choose None if your endpoint does not support it.",
+        control: {
+          type: "dropdown" as const,
+          key: "thinkingEffort",
+          options: Object.fromEntries(THINKING_LEVELS.map((level) => [level.id, level.name])),
+        },
       },
       {
         name: "AI brain folder",
@@ -417,9 +395,6 @@ class BolovanSettingTab extends PluginSettingTab {
 }
 
 function modelDescription(kind: ProviderKind): string {
-  if (kind === "webgpu") {
-    return "Curated WebGPU model. The first run downloads model weights into the browser cache. No CPU fallback.";
-  }
   if (kind === "openai") {
     return "Choose the active OpenAI model. Terra is the balanced default.";
   }
@@ -427,7 +402,7 @@ function modelDescription(kind: ProviderKind): string {
 }
 
 function modelOptions(kind: ProviderKind, savedModel: string): Record<string, string> {
-  const choices = kind === "webgpu" ? [LOCAL_WEBGPU_MODEL] : [...OPENAI_MODELS];
+  const choices = [...OPENAI_MODELS];
   const options: Record<string, string> = Object.fromEntries(
     choices.map((choice) => [choice.id, choice.name] as [string, string]),
   );
@@ -455,16 +430,12 @@ function knownSettings(loaded: Partial<BolovanSettings> | undefined): Partial<Bo
       (result as any)[key] = loaded[key];
     }
   }
-  return result;
-}
-
-function webGpuDescription(): string {
-  if (!("gpu" in navigator)) {
-    return "Unavailable on this device. Select OpenAI or an OpenAI-compatible provider.";
+  // v0 dropped the local WebGPU provider; a saved choice falls back to OpenAI.
+  if ((result.providerKind as string | undefined) === "webgpu") {
+    result.providerKind = "openai";
+    result.model = DEFAULT_SETTINGS.model;
   }
-  return Platform.isMobile
-    ? "WebGPU API detected in this mobile WebView; hardware qualification happens when the model loads."
-    : "WebGPU API detected in this desktop renderer; hardware qualification happens when the model loads.";
+  return result;
 }
 
 function describeError(error: unknown): string {

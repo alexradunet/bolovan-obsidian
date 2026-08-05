@@ -183,14 +183,6 @@ is allowed only when every condition below is met:
 - Reject convenience helpers, state frameworks, formatting packages,
   dependency-injection libraries, and thin wrappers over native APIs.
 
-Transformers.js and ONNX Runtime Web are the permanent narrow exception for the
-essential local WebGPU provider. Keep one curated model path, lazy-load both
-runtimes behind one boundary, expose no general ML framework to the rest of the
-plugin, and provide no CPU/WASM fallback. Pin compatibility-sensitive versions
-exactly. A development snapshot requires a documented compatibility reason and
-an explicit upgrade test. Additional model stacks require demonstrated value
-and must pass the full admission test again.
-
 ## Architecture vocabulary
 
 Use these terms consistently:
@@ -243,10 +235,9 @@ These are requirements, not suggestions:
   desktop, iOS, and Android. Do not import Node built-ins or depend on native
   processes.
 - Bolovan owns its harness. Providers vary behind `ModelAdapter`; Vault behavior varies behind the four-tool adapter. See `docs/adr/0001-native-cross-platform-harness.md`.
-- Supported providers are OpenAI, advanced OpenAI-compatible endpoints, and
-  local Transformers.js WebGPU. Local inference is capability-gated: a device
-  must return a compatible adapter and initialize the model. Explain
-  unavailability clearly and never fall back to CPU/WASM.
+- Supported providers are OpenAI and advanced OpenAI-compatible endpoints.
+  Local on-device inference was removed in v0.4 (ADR 0003); reintroducing it
+  requires the full dependency admission test again.
 - Runs are user-triggered and single-flight. Completed-response rendering is the portable guarantee; streaming is optional enhancement behavior.
 - Vault behavior uses Obsidian `Vault`, `MetadataCache`, and `FileManager` APIs.
   Hidden configuration capabilities use the mobile-safe `Vault.adapter` only
@@ -286,9 +277,7 @@ These are requirements, not suggestions:
 
 - Test provider normalization, tool-loop stopping, cancellation, exact approvals, stale-write rejection, and device-branch forking through module interfaces.
 - Transcript semantics live in `src/transcript.ts` and are tested without an Obsidian runtime.
-- Integration tests use synthetic in-memory adapters and never a personal vault, credential, provider account, or downloaded model.
+- Integration tests use synthetic in-memory adapters and never a personal vault, credential, or provider account.
 - Release smoke tests cover the minimum supported Obsidian version, current
-  desktop, iOS, and Android for the core harness. WebGPU tests capability
-  absence, adapter failure, model-download failure, and at least one compatible
-  device without implying universal device support.
+  desktop, iOS, and Android for the core harness.
 - Tests should survive internal refactors when module interfaces and behavior remain unchanged.

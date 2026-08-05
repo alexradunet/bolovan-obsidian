@@ -2,7 +2,7 @@
 
 - **Run** — one user-triggered harness execution. One run may contain several model/tool rounds; only one run is active at a time.
 - **Harness** — the orchestration boundary that owns model calls, tool rounds, approval, cancellation, and persistence.
-- **Provider** — a device-local inference configuration: OpenAI, an OpenAI-compatible endpoint, or local WebGPU.
+- **Provider** — a device-local inference configuration: OpenAI or an OpenAI-compatible endpoint.
 - **Model adapter** — the normalized completion interface hiding provider request and response details.
 - **Vault tool** — one of `vault_read`, `vault_search`, `vault_list`, or `vault_change`; all operate through Obsidian APIs. Reads under `.obsidian` go through `vault.adapter`; writes there stay refused.
 - **Web reader** — the read-only `web_read` tool fetches a user-supplied HTTP or HTTPS URL through Obsidian's network API and returns bounded readable text. Page content is untrusted data, not agent instructions.

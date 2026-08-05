@@ -6,9 +6,8 @@ Bolovan is an AI agent built directly into Obsidian. Install the plugin, choose 
 
 - **OpenAI** — enter an API key in Bolovan settings. The key is stored in Obsidian SecretStorage on the current device.
 - **OpenAI-compatible** — advanced configuration for a custom `/v1` endpoint implementing Chat Completions and function tools.
-- **Local WebGPU** — runs the curated, optimized Qwen 3.5 0.8B ONNX model through Transformers.js. The model downloads on first use and stays in the browser cache. There is intentionally no CPU fallback.
 
-Provider profiles, secrets, model caches, the device id, and the selected conversation branch are device-local. Portable agent knowledge and conversations live in the synced brain folder.
+Provider profiles, secrets, the device id, and the selected conversation branch are device-local. Portable agent knowledge and conversations live in the synced brain folder.
 
 ## Vault capabilities
 

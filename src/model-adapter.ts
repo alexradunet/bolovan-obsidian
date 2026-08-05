@@ -1,7 +1,6 @@
 import type { RequestUrlParam, RequestUrlResponse } from "obsidian";
-import { loadWebGpuRuntime, type LocalRuntime } from "./webgpu-runtime";
 
-export type ProviderKind = "openai" | "openai-compatible" | "webgpu";
+export type ProviderKind = "openai" | "openai-compatible";
 export type ThinkingEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface ProviderConfig {
@@ -48,9 +47,6 @@ export function createModelAdapter(
   config: ProviderConfig,
   requestTransport: RequestTransport,
 ): ModelAdapter {
-  if (config.kind === "webgpu") {
-    return new WebGpuModelAdapter(config.model);
-  }
   return new OpenAiCompatibleAdapter(config, requestTransport);
 }
 
@@ -124,71 +120,6 @@ class OpenAiCompatibleAdapter implements ModelAdapter {
   }
 }
 
-/**
- * Transformers.js stays behind this adapter and is loaded only when the user
- * selects a local model. There is deliberately no WASM/CPU fallback: a device
- * without WebGPU must use a remote provider.
- */
-class WebGpuModelAdapter implements ModelAdapter {
-  private runtime: Promise<LocalRuntime> | undefined;
-
-  constructor(private readonly modelId: string) {}
-
-  async complete(
-    messages: ModelMessage[],
-    tools: ToolDefinition[],
-    signal: AbortSignal,
-  ): Promise<ModelReply> {
-    if (!("gpu" in navigator)) {
-      throw new Error("WebGPU is unavailable on this device. Select a remote provider.");
-    }
-    if (!this.runtime) {
-      const gpuAdapter = await (navigator as any).gpu.requestAdapter();
-      if (!gpuAdapter) {
-        throw new Error("No compatible WebGPU adapter is available. Select a remote provider.");
-      }
-    }
-    if (signal.aborted) {
-      throw abortError();
-    }
-    const runtime = await (this.runtime ??= loadWebGpuRuntime(this.modelId));
-    const localMessages = messages.map((message) => ({
-      role: message.role,
-      content: message.content + (message.toolCalls?.length
-        ? `\n<bolovan-tool-calls>${JSON.stringify(message.toolCalls)}</bolovan-tool-calls>`
-        : ""),
-    }));
-    const toolProtocol = localToolProtocol(tools);
-    if (localMessages[0]?.role === "system") {
-      localMessages[0].content = `${localMessages[0].content}\n\n${toolProtocol}`;
-    } else {
-      localMessages.unshift({ role: "system", content: toolProtocol });
-    }
-    const inputs = await runtime.processor.apply_chat_template(localMessages, {
-      add_generation_prompt: true,
-      tokenize: true,
-      return_dict: true,
-    });
-    const output = await runtime.model.generate({
-      ...inputs,
-      max_new_tokens: 1024,
-      do_sample: false,
-    });
-    if (signal.aborted) {
-      throw abortError();
-    }
-    const promptLength = Number(inputs.input_ids?.dims?.at(-1) ?? 0);
-    const generated = output.slice?.(null, [promptLength, null]) ?? output;
-    const decoded = await runtime.processor.batch_decode(generated, { skip_special_tokens: true });
-    return parseLocalReply(String(decoded?.[0] ?? ""));
-  }
-
-  dispose(): void {
-    void this.runtime?.then(({ model }) => model.dispose?.());
-    this.runtime = undefined;
-  }
-}
-
 function toOpenAiMessage(message: ModelMessage): Record<string, unknown> {
   const result: Record<string, unknown> = { role: message.role, content: message.content };
   if (message.toolCallId) {
@@ -204,34 +135,6 @@ function toOpenAiMessage(message: ModelMessage): Record<string, unknown> {
   return result;
 }
 
-function localToolProtocol(tools: ToolDefinition[]): string {
-  return [
-    "You may use Bolovan tools. To call a tool, reply with only this JSON:",
-    '{"tool_calls":[{"name":"vault_read","arguments":{"path":"Note.md"}}]}',
-    "After tool results, answer normally or issue another tool call. Never invent tool results.",
-    `Available tools: ${JSON.stringify(tools)}`,
-  ].join("\n");
-}
-
-function parseLocalReply(text: string): ModelReply {
-  const candidate = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  try {
-    const parsed = JSON.parse(candidate);
-    if (Array.isArray(parsed?.tool_calls)) {
-      return {
-        text: "",
-        toolCalls: parsed.tool_calls.map((call: any, index: number) => ({
-          id: `local-${Date.now()}-${index}`,
-          name: String(call?.name ?? "unknown"),
-          arguments: objectOrEmpty(call?.arguments),
-        })),
-      };
-    }
-  } catch {
-    // A normal assistant response is not JSON.
-  }
-  return { text, toolCalls: [] };
-}
 
 function parseArguments(value: unknown): Record<string, unknown> {
   if (typeof value !== "string") {
