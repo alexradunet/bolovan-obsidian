@@ -247,7 +247,11 @@ export class BolovanChatView extends ItemView {
   private createItemEl(item: TranscriptItem): HTMLElement {
     let el: HTMLElement;
     if (item.kind === "tool") {
-      el = this.transcriptEl.createDiv({ cls: "bolovan-tool" });
+      const last = this.transcriptEl.lastElementChild;
+      const group = last?.classList.contains("bolovan-tool-group")
+        ? last as HTMLElement
+        : this.transcriptEl.createDiv({ cls: "bolovan-tool-group" });
+      el = group.createDiv({ cls: "bolovan-tool" });
       el.createSpan({ cls: "bolovan-tool__status" });
       el.createSpan({ cls: "bolovan-tool__label" });
       el.toggleClass("bolovan-tool--web", item.name === "web_read");
@@ -282,6 +286,7 @@ export class BolovanChatView extends ItemView {
       status?.setText(item.status === "running" ? "…" : item.status === "done" ? "✓" : "✗");
       if (label) {
         label.empty();
+        label.setAttr("title", item.target ? `${item.name} · ${item.target}` : item.name);
         label.createSpan({ text: item.name });
         if (item.target) {
           label.createSpan({ text: " · " });
@@ -334,6 +339,7 @@ export class BolovanChatView extends ItemView {
     if (!url) {
       existing?.remove();
       el.querySelector(".bolovan-tool__preview")?.remove();
+      el.removeClass("is-expanded");
       return;
     }
     if (existing) {
@@ -352,6 +358,7 @@ export class BolovanChatView extends ItemView {
         openPreview.remove();
         previewButton.setText("Preview");
         previewButton.setAttr("aria-expanded", "false");
+        el.removeClass("is-expanded");
         return;
       }
 
@@ -365,17 +372,20 @@ export class BolovanChatView extends ItemView {
           sandbox: "allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts",
         },
       });
+      el.addClass("is-expanded");
       previewButton.setText("Hide");
       previewButton.setAttr("aria-expanded", "true");
       this.scrollToBottom(false);
     });
 
-    const openButton = actions.createEl("button", {
+    actions.createEl("a", {
       cls: "bolovan-tool__action",
       text: "Open",
-    });
-    openButton.addEventListener("click", () => {
-      void this.app.workspace.openLinkText(url, "", "tab");
+      attr: {
+        href: url,
+        target: "_blank",
+        rel: "noopener noreferrer",
+      },
     });
   }
 
