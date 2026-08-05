@@ -206,7 +206,7 @@ function toOpenAiMessage(message: ModelMessage): Record<string, unknown> {
 
 function localToolProtocol(tools: ToolDefinition[]): string {
   return [
-    "You may use Bolovan vault tools. To call tools, reply with only this JSON:",
+    "You may use Bolovan tools. To call a tool, reply with only this JSON:",
     '{"tool_calls":[{"name":"vault_read","arguments":{"path":"Note.md"}}]}',
     "After tool results, answer normally or issue another tool call. Never invent tool results.",
     `Available tools: ${JSON.stringify(tools)}`,

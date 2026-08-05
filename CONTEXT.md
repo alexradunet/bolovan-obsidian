@@ -5,6 +5,7 @@
 - **Provider** — a device-local inference configuration: OpenAI, an OpenAI-compatible endpoint, or local WebGPU.
 - **Model adapter** — the normalized completion interface hiding provider request and response details.
 - **Vault tool** — one of `vault_read`, `vault_search`, `vault_list`, or `vault_change`; all operate through Obsidian APIs. Reads under `.obsidian` go through `vault.adapter`; writes there stay refused.
+- **Web reader** — the read-only `web_read` tool fetches a user-supplied HTTP or HTTPS URL through Obsidian's network API and returns bounded readable text. Page content is untrusted data, not agent instructions.
 - **Prepared change** — an immutable exact preview plus a commit closure bound to the source hash.
 - **Brain** — the visible configurable vault folder identified by `bolovan-brain.json`.
 - **Conversation** — a logical sequence of user, assistant, and tool messages.
