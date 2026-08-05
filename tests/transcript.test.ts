@@ -57,6 +57,36 @@ describe("Transcript history mapping", () => {
     expect(transcript.all()[1]).toMatchObject({ finalized: true });
   });
 
+  it("restores a completed web read with its URL", () => {
+    const transcript = new Transcript();
+
+    transcript.loadHistory([
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "call-web",
+            name: "web_read",
+            arguments: { url: "https://example.com/article" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        toolCallId: "call-web",
+        content: "{\"url\":\"https://example.com/article\",\"content\":\"Article\"}",
+      },
+    ]);
+
+    expect(transcript.all()[0]).toMatchObject({
+      kind: "tool",
+      name: "web_read",
+      target: "https://example.com/article",
+      status: "done",
+    });
+  });
+
   it("keeps user message text when attachments exist", () => {
     const transcript = new Transcript();
 
@@ -200,6 +230,22 @@ describe("Transcript live events", () => {
       status: "done",
     });
     expect(transcript.all()[2]).toMatchObject({ markdown: "Done.", finalized: true });
+  });
+
+  it("keeps the web URL when a live read completes", () => {
+    const transcript = new Transcript();
+
+    applyAll(transcript, [
+      { type: "tool-start", name: "web_read", args: { url: "https://example.com/article" } },
+      { type: "tool-end", name: "web_read", isError: false },
+    ]);
+
+    expect(transcript.all()[0]).toMatchObject({
+      kind: "tool",
+      name: "web_read",
+      target: "https://example.com/article",
+      status: "done",
+    });
   });
 
   it("adds a final item when a tool end arrives without a start", () => {

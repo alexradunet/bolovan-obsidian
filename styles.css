@@ -113,6 +113,20 @@
   margin-bottom: 0;
 }
 
+.bolovan-message--assistant .image-embed {
+  display: block;
+  max-width: 100%;
+}
+
+.bolovan-message--assistant img {
+  border-radius: var(--radius-s);
+  display: block;
+  height: auto;
+  max-height: min(32rem, 65vh);
+  max-width: 100%;
+  object-fit: contain;
+}
+
 .bolovan-message--assistant.is-streaming::after {
   animation: bolovan-pulse 1.2s ease-in-out infinite;
   background: var(--interactive-accent);
@@ -166,6 +180,11 @@
   padding: var(--size-4-1) var(--size-4-2);
 }
 
+.bolovan-tool--web {
+  flex-wrap: wrap;
+  width: min(34rem, 100%);
+}
+
 .bolovan-tool__status {
   color: var(--text-accent);
   flex: 0 0 1ch;
@@ -185,9 +204,33 @@
 }
 
 .bolovan-tool__label {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.bolovan-tool__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--size-4-1);
+  margin-left: auto;
+}
+
+.bolovan-tool__action {
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-smaller);
+  padding: 0 var(--size-4-2);
+}
+
+.bolovan-tool__preview {
+  aspect-ratio: 16 / 9;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  flex: 1 0 100%;
+  width: 100%;
 }
 
 .bolovan-chat__empty {

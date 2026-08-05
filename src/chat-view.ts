@@ -250,6 +250,7 @@ export class BolovanChatView extends ItemView {
       el = this.transcriptEl.createDiv({ cls: "bolovan-tool" });
       el.createSpan({ cls: "bolovan-tool__status" });
       el.createSpan({ cls: "bolovan-tool__label" });
+      el.toggleClass("bolovan-tool--web", item.name === "web_read");
     } else {
       el = this.transcriptEl.createDiv({ cls: `bolovan-message bolovan-message--${item.kind}` });
     }
@@ -298,11 +299,13 @@ export class BolovanChatView extends ItemView {
             label.createSpan({ text: targetText });
           }
         }
+        this.paintWebActions(item, el);
       }
       el.toggleClass("bolovan-tool--done", item.status === "done");
       el.toggleClass("bolovan-tool--error", item.status === "error");
       return;
     }
+
 
     if (item.kind === "user") {
       el.empty();
@@ -322,6 +325,58 @@ export class BolovanChatView extends ItemView {
     }
 
     el.setText(item.text);
+  }
+  private paintWebActions(item: Extract<TranscriptItem, { kind: "tool" }>, el: HTMLElement): void {
+    const existing = el.querySelector(".bolovan-tool__actions");
+    const url = item.name === "web_read" && item.status === "done"
+      ? webPreviewUrl(item.target)
+      : undefined;
+    if (!url) {
+      existing?.remove();
+      el.querySelector(".bolovan-tool__preview")?.remove();
+      return;
+    }
+    if (existing) {
+      return;
+    }
+
+    const actions = el.createDiv({ cls: "bolovan-tool__actions" });
+    const previewButton = actions.createEl("button", {
+      cls: "bolovan-tool__action",
+      text: "Preview",
+      attr: { "aria-expanded": "false" },
+    });
+    previewButton.addEventListener("click", () => {
+      const openPreview = el.querySelector(".bolovan-tool__preview");
+      if (openPreview) {
+        openPreview.remove();
+        previewButton.setText("Preview");
+        previewButton.setAttr("aria-expanded", "false");
+        return;
+      }
+
+      el.createEl("iframe", {
+        cls: "bolovan-tool__preview",
+        attr: {
+          src: url,
+          title: `Preview of ${new URL(url).hostname}`,
+          loading: "lazy",
+          referrerpolicy: "no-referrer",
+          sandbox: "allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts",
+        },
+      });
+      previewButton.setText("Hide");
+      previewButton.setAttr("aria-expanded", "true");
+      this.scrollToBottom(false);
+    });
+
+    const openButton = actions.createEl("button", {
+      cls: "bolovan-tool__action",
+      text: "Open",
+    });
+    openButton.addEventListener("click", () => {
+      void this.app.workspace.openLinkText(url, "", "tab");
+    });
   }
 
   private scheduleAssistantPaint(id: string): void {
@@ -704,6 +759,19 @@ function formatContextSize(tokens: number): string {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function webPreviewUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    const isWebUrl = url.protocol === "http:" || url.protocol === "https:";
+    if (!isWebUrl || url.username || url.password) {
+      return undefined;
+    }
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 /** Fuzzy note chooser behind the composer's paperclip button. */
