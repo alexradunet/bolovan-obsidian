@@ -10,10 +10,9 @@ function note(path: string): TFile {
 }
 
 describe("WorkspaceTools", () => {
-  it("returns active in-memory selection context with a buffer hash", async () => {
+  it("returns active in-memory selection context without implying write authority", async () => {
     const file = note("Active.md");
     const editor = {
-      getValue: () => "before selected after",
       getSelection: () => "selected",
       getCursor: () => ({ line: 0, ch: 15 }),
       listSelections: () => [{ anchor: { line: 0, ch: 7 }, head: { line: 0, ch: 15 } }],
@@ -37,7 +36,6 @@ describe("WorkspaceTools", () => {
       selectionTruncated: false,
       selections: [{ anchor: { line: 0, ch: 7 }, head: { line: 0, ch: 15 } }],
     });
-    expect(payload.bufferHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("opens in the active Markdown leaf without replacing Bolovan's chat leaf", async () => {
@@ -100,13 +98,10 @@ describe("WorkspaceTools", () => {
       workspace: { activeEditor: null },
     } as unknown as App;
 
-    const result = await new WorkspaceTools(app).execute({
+    await expect(new WorkspaceTools(app).execute({
       action: "open",
       path: "Target.md",
       pane: "window",
-    });
-
-    expect(result).toMatchObject({ isError: true });
-    expect(result.content).toContain("Unsupported workspace pane");
+    })).rejects.toThrow("Unsupported workspace pane");
   });
 });

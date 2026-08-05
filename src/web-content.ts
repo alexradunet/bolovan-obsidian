@@ -1,11 +1,8 @@
-import type { ToolDefinition, RequestTransport } from "./model-adapter";
+import type { RequestTransport, ToolDefinition } from "./model-adapter";
+import type { ToolResult } from "./model-tools";
 
 const MAX_CONTENT_CHARS = 40_000;
 
-export interface WebReadResult {
-  content: string;
-  isError?: boolean;
-}
 
 export const WEB_TOOL_DEFINITION: ToolDefinition = {
   name: "web_read",
@@ -24,13 +21,8 @@ export const WEB_TOOL_DEFINITION: ToolDefinition = {
 export class WebContentReader {
   constructor(private readonly requestTransport: RequestTransport) {}
 
-  async read(value: unknown, signal: AbortSignal): Promise<WebReadResult> {
-    let url: URL;
-    try {
-      url = validUrl(value);
-    } catch (error) {
-      return { content: error instanceof Error ? error.message : String(error), isError: true };
-    }
+  async read(value: unknown, signal: AbortSignal): Promise<ToolResult> {
+    const url = validUrl(value);
     if (signal.aborted) {
       throw abortError();
     }
@@ -47,16 +39,13 @@ export class WebContentReader {
       if (signal.aborted) {
         throw abortError();
       }
-      return {
-        content: `Could not read ${url.toString()}: ${error instanceof Error ? error.message : String(error)}`,
-        isError: true,
-      };
+      throw new Error(`Could not read ${url.toString()}: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (signal.aborted) {
       throw abortError();
     }
     if (response.status < 200 || response.status >= 300) {
-      return { content: `The URL returned HTTP ${response.status}: ${url.toString()}`, isError: true };
+      throw new Error(`The URL returned HTTP ${response.status}: ${url.toString()}`);
     }
 
     const contentTypeHeader = Object.entries(response.headers)
@@ -72,17 +61,14 @@ export class WebContentReader {
       "application/atom+xml",
     ].includes(contentType);
     if (!isText) {
-      return {
-        content: `The URL is not a supported text page (${contentType || "unknown content type"}): ${url.toString()}`,
-        isError: true,
-      };
+      throw new Error(`The URL is not a supported text page (${contentType || "unknown content type"}): ${url.toString()}`);
     }
 
     const extracted = isHtml
       ? extractHtml(response.text)
       : { title: "", text: normalizeText(response.text) };
     if (!extracted.text) {
-      return { content: `No readable text was found at ${url.toString()}`, isError: true };
+      throw new Error(`No readable text was found at ${url.toString()}`);
     }
     const truncated = extracted.text.length > MAX_CONTENT_CHARS;
     return {

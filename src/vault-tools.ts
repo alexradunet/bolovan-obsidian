@@ -8,21 +8,12 @@ import {
   type CachedMetadata,
 } from "obsidian";
 import type { ToolDefinition } from "./model-adapter";
+import type { PreparedChange, ToolResult } from "./model-tools";
 import { inspectStructuredFile, validateStructuredFile } from "./structured-files";
 
 const MAX_READ_CHARS = 40_000;
 const MAX_INSPECT_ITEMS = 100;
 
-export interface ToolResult {
-  content: string;
-  isError?: boolean;
-}
-
-export interface ChangePreview {
-  title: string;
-  message: string;
-  apply(): Promise<ToolResult>;
-}
 
 export const VAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -89,31 +80,24 @@ export class VaultTools {
     name: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
-  ): Promise<ToolResult | ChangePreview> {
-    try {
-      throwIfAborted(signal);
-      if (name === "vault_read") {
-        return await this.read(args, signal);
-      }
-      if (name === "vault_search") {
-        return await this.search(args, signal);
-      }
-      if (name === "vault_list") {
-        return await this.list(args, signal);
-      }
-      if (name === "vault_inspect") {
-        return await this.inspect(rawPath(args.path), signal);
-      }
-      if (name === "vault_change") {
-        return await this.prepareChange(args);
-      }
-      return { content: `Unknown tool: ${name}`, isError: true };
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        throw error;
-      }
-      return { content: error instanceof Error ? error.message : String(error), isError: true };
+  ): Promise<ToolResult | PreparedChange> {
+    throwIfAborted(signal);
+    if (name === "vault_read") {
+      return this.read(args, signal);
     }
+    if (name === "vault_search") {
+      return this.search(args, signal);
+    }
+    if (name === "vault_list") {
+      return this.list(args, signal);
+    }
+    if (name === "vault_inspect") {
+      return this.inspect(rawPath(args.path), signal);
+    }
+    if (name === "vault_change") {
+      return this.prepareChange(args);
+    }
+    throw new Error(`Unknown Vault tool: ${name}`);
   }
 
   private async read(args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
@@ -543,7 +527,7 @@ export class VaultTools {
     };
   }
 
-  private async prepareChange(args: Record<string, unknown>): Promise<ChangePreview> {
+  private async prepareChange(args: Record<string, unknown>): Promise<PreparedChange> {
     const action = requireString(args, "action");
     const actions = ["create", "replace", "patch", "append", "copy", "move", "archive", "trash"];
     if (!actions.includes(action)) {

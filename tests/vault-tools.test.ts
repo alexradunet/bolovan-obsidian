@@ -1,22 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import type { App, CachedMetadata, TFile } from "obsidian";
-import { VaultTools, type ChangePreview, type ToolResult } from "../src/vault-tools";
+import { VaultTools } from "../src/vault-tools";
+import type { PreparedChange, ToolResult } from "../src/model-tools";
 import { fakeApp } from "./fake-app";
 
-/** Direct tool results carry content; previews carry apply(). */
-function contentOf(result: ToolResult | ChangePreview): string {
+/** Direct tool results carry content; prepared changes carry apply(). */
+function contentOf(result: ToolResult | PreparedChange): string {
   if ("apply" in result) {
-    throw new Error("Expected a direct tool result, got a change preview");
+    throw new Error("Expected a direct tool result, got a prepared change");
   }
   return result.content;
 }
 
-function asChangePreview(result: ToolResult | ChangePreview): ChangePreview {
+function asPreparedChange(result: ToolResult | PreparedChange): PreparedChange {
   if ("apply" in result) {
     return result;
   }
-  throw new Error("Expected a change preview, got a direct tool result");
+  throw new Error("Expected a prepared change, got a direct tool result");
 }
 
 function setMetadata(
@@ -316,19 +317,18 @@ describe("VaultTools exact changes", () => {
       content: "changed",
       expected_hash: hash,
     });
-    expect(asChangePreview(prepared).message).toContain("before changed after");
-    await asChangePreview(prepared).apply();
+    expect(asPreparedChange(prepared).message).toContain("before changed after");
+    await asPreparedChange(prepared).apply();
     expect(await app.vault.cachedRead(app.vault.getFileByPath("Note.md")!)).toBe("before changed after");
 
     const nextRead = await tools.execute("vault_read", { path: "Note.md" });
-    const ambiguous = await tools.execute("vault_change", {
+    await expect(tools.execute("vault_change", {
       action: "patch",
       path: "Note.md",
       before: "e",
       content: "x",
       expected_hash: JSON.parse(contentOf(nextRead)).hash,
-    });
-    expect(contentOf(ambiguous)).toContain("must occur exactly once");
+    })).rejects.toThrow("must occur exactly once");
   });
 
   it("rejects an approved text change when the source changes before commit", async () => {
@@ -343,7 +343,7 @@ describe("VaultTools exact changes", () => {
     });
 
     await app.vault.process(app.vault.getFileByPath("Note.md")!, () => "changed elsewhere");
-    await expect(asChangePreview(prepared).apply()).rejects.toThrow("changed after approval");
+    await expect(asPreparedChange(prepared).apply()).rejects.toThrow("changed after approval");
     expect(await app.vault.cachedRead(app.vault.getFileByPath("Note.md")!)).toBe("changed elsewhere");
   });
 
@@ -358,7 +358,7 @@ describe("VaultTools exact changes", () => {
       destination: "Copies/Note.md",
       expected_hash: JSON.parse(contentOf(read)).hash,
     });
-    await asChangePreview(copy).apply();
+    await asPreparedChange(copy).apply();
     expect(await app.vault.cachedRead(app.vault.getFileByPath("Copies/Note.md")!)).toBe("content");
 
     const copiedRead = await tools.execute("vault_read", { path: "Copies/Note.md" });
@@ -367,19 +367,17 @@ describe("VaultTools exact changes", () => {
       path: "Copies/Note.md",
       expected_hash: JSON.parse(contentOf(copiedRead)).hash,
     });
-    await asChangePreview(trash).apply();
+    await asPreparedChange(trash).apply();
     expect(app.vault.getFileByPath("Copies/Note.md")).toBeNull();
   });
 
   it("refuses stable-channel writes under the config directory", async () => {
     const tools = new VaultTools(fakeApp());
-    const result = await tools.execute("vault_change", {
+    await expect(tools.execute("vault_change", {
       action: "create",
       path: ".obsidian/plugins/generated/main.ts",
       content: "unsafe",
-    });
-
-    expect(contentOf(result)).toContain("does not modify Obsidian configuration or plugin code");
+    })).rejects.toThrow("does not modify Obsidian configuration or plugin code");
   });
 
   it("reads and lists only Bolovan's own hidden source subtree", async () => {
@@ -398,10 +396,10 @@ describe("VaultTools exact changes", () => {
       type: "file",
     });
 
-    const settings = await tools.execute("vault_read", { path: ".obsidian/app.json" });
-    expect(contentOf(settings)).toContain("only read its own plugin directory");
-    const otherPlugin = await tools.execute("vault_list", { path: ".obsidian/plugins/other-plugin" });
-    expect(contentOf(otherPlugin)).toContain("only read its own plugin directory");
+    await expect(tools.execute("vault_read", { path: ".obsidian/app.json" }))
+      .rejects.toThrow("only read its own plugin directory");
+    await expect(tools.execute("vault_list", { path: ".obsidian/plugins/other-plugin" }))
+      .rejects.toThrow("only read its own plugin directory");
   });
 
   it("follows a renamed config directory and blocks moves into it", async () => {
@@ -412,13 +410,12 @@ describe("VaultTools exact changes", () => {
     const source = await tools.execute("vault_read", { path: ".config/plugins/bolovan/main.js" });
     expect(JSON.parse(contentOf(source)).content).toBe("source");
     const note = await tools.execute("vault_read", { path: "Note.md" });
-    const blocked = await tools.execute("vault_change", {
+    await expect(tools.execute("vault_change", {
       action: "move",
       path: "Note.md",
       destination: ".config/plugins/bolovan/copied.md",
       expected_hash: JSON.parse(contentOf(note)).hash,
-    });
-    expect(contentOf(blocked)).toContain("does not modify Obsidian configuration");
+    })).rejects.toThrow("does not modify Obsidian configuration");
   });
   it("rejects malformed Canvas and Bases content before approval", async () => {
     const tools = new VaultTools(fakeApp());
@@ -427,19 +424,16 @@ describe("VaultTools exact changes", () => {
       edges: [{ id: "edge", fromNode: "one", toNode: "missing" }],
     });
 
-    const canvas = await tools.execute("vault_change", {
+    await expect(tools.execute("vault_change", {
       action: "create",
       path: "Broken.canvas",
       content: danglingCanvas,
-    });
-    const bases = await tools.execute("vault_change", {
+    })).rejects.toThrow("references a missing node");
+    await expect(tools.execute("vault_change", {
       action: "create",
       path: "Broken.base",
       content: JSON.stringify({ filters: { maybe: ["status == \"open\""] }, views: [] }),
-    });
-
-    expect(contentOf(canvas)).toContain("references a missing node");
-    expect(contentOf(bases)).toContain("must contain one and, or, or not array");
+    })).rejects.toThrow("must contain one and, or, or not array");
   });
 
   it("validates resulting structured patches and copy destinations", async () => {
@@ -466,27 +460,24 @@ describe("VaultTools exact changes", () => {
       content: "\"Active\"",
       expected_hash: baseRead.hash,
     });
-    await asChangePreview(validPatch).apply();
+    await asPreparedChange(validPatch).apply();
     expect(await app.vault.cachedRead(app.vault.getFileByPath("Dashboard.base")!)).toContain("\"Active\"");
 
     const canvasRead = JSON.parse(contentOf(await tools.execute("vault_read", { path: "Board.canvas" })));
-    const invalidPatch = await tools.execute("vault_change", {
+    await expect(tools.execute("vault_change", {
       action: "patch",
       path: "Board.canvas",
       before: "\"id\":\"one\"",
       content: "\"id\":\"\"",
       expected_hash: canvasRead.hash,
-    });
+    })).rejects.toThrow("must be a non-empty string");
     const noteRead = JSON.parse(contentOf(await tools.execute("vault_read", { path: "Note.md" })));
-    const invalidCopy = await tools.execute("vault_change", {
+    await expect(tools.execute("vault_change", {
       action: "copy",
       path: "Note.md",
       destination: "Copied.canvas",
       expected_hash: noteRead.hash,
-    });
-
-    expect(contentOf(invalidPatch)).toContain("must be a non-empty string");
-    expect(contentOf(invalidCopy)).toContain("Invalid Canvas JSON");
+    })).rejects.toThrow("Invalid Canvas JSON");
     expect(app.vault.getFileByPath("Copied.canvas")).toBeNull();
   });
 

@@ -63,11 +63,10 @@ describe("WebContentReader", () => {
       return response("unused");
     });
 
-    const file = await reader.read("file:///private/note", new AbortController().signal);
-    const credential = await reader.read("https://user:secret@example.com/", new AbortController().signal);
-
-    expect(file).toMatchObject({ isError: true, content: "web_read supports only HTTP and HTTPS URLs" });
-    expect(credential).toMatchObject({ isError: true, content: "web_read does not accept credentials in URLs" });
+    await expect(reader.read("file:///private/note", new AbortController().signal))
+      .rejects.toThrow("web_read supports only HTTP and HTTPS URLs");
+    await expect(reader.read("https://user:secret@example.com/", new AbortController().signal))
+      .rejects.toThrow("web_read does not accept credentials in URLs");
     expect(requests).toBe(0);
   });
 

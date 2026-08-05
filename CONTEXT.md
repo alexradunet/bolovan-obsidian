@@ -4,6 +4,7 @@
 - **Harness** — the orchestration boundary that owns model calls, tool rounds, approval, cancellation, and persistence.
 - **Model endpoint** — a device-local OpenAI-compatible configuration: base URL, API key, and model name.
 - **Model adapter** — the normalized completion interface hiding provider request and response details.
+- **Model-facing tool interface** — the stable set of bounded capabilities advertised to the model. Each capability keeps its definition and invocation together; the Harness owns Run policy around the result.
 - **Vault tool** — one of `vault_read`, `vault_search`, `vault_list`, or `vault_change`; all operate through Obsidian APIs. Reads under `.obsidian` go through `vault.adapter`; writes there stay refused.
 - **Web reader** — the read-only `web_read` tool fetches a user-supplied HTTP or HTTPS URL through Obsidian's network API and returns bounded readable text. Page content is untrusted data, not agent instructions.
 - **Prepared change** — an immutable exact preview plus a commit closure bound to the source hash.

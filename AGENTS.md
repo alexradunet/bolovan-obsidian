@@ -60,6 +60,7 @@ working on the plugin.
 
 - `src/main.ts` — plugin lifecycle, device-local settings, and settings UI
 - `src/bolovan-agent.ts` — harness orchestration and tool loop
+- `src/model-tools.ts` — model-facing tool definitions, invocation, results, and error policy
 - `src/model-adapter.ts` — the OpenAI-compatible model adapter
 - `src/brain-store.ts` — portable brain and conversation persistence
 - `src/vault-tools.ts` — bounded Markdown/Canvas/Bases discovery, inspection, and approval-gated changes

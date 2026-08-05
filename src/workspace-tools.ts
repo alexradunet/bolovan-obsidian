@@ -1,6 +1,6 @@
 import { MarkdownView, normalizePath, type App } from "obsidian";
 import type { ToolDefinition } from "./model-adapter";
-import type { ToolResult } from "./vault-tools";
+import type { ToolResult } from "./model-tools";
 
 const MAX_SELECTION_CHARS = 40_000;
 
@@ -24,21 +24,17 @@ export class WorkspaceTools {
   constructor(private readonly app: App) {}
 
   async execute(args: Record<string, unknown>): Promise<ToolResult> {
-    try {
-      const action = args.action;
-      if (action === "context") {
-        return await this.context();
-      }
-      if (action === "open") {
-        return await this.open(args);
-      }
-      return { content: `Unsupported workspace action: ${String(action)}`, isError: true };
-    } catch (error) {
-      return { content: error instanceof Error ? error.message : String(error), isError: true };
+    const action = args.action;
+    if (action === "context") {
+      return this.context();
     }
+    if (action === "open") {
+      return this.open(args);
+    }
+    throw new Error(`Unsupported workspace action: ${String(action)}`);
   }
 
-  private async context(): Promise<ToolResult> {
+  private context(): ToolResult {
     const activeEditor = this.app.workspace.activeEditor;
     const file = activeEditor?.file ?? this.app.workspace.getActiveFile();
     const editor = activeEditor?.editor;
@@ -51,14 +47,12 @@ export class WorkspaceTools {
       };
     }
 
-    const buffer = editor.getValue();
     const selection = editor.getSelection();
     const truncated = selection.length > MAX_SELECTION_CHARS;
     return {
       content: JSON.stringify({
         path: file?.path,
         hasEditor: true,
-        bufferHash: await sha256(buffer),
         cursor: editor.getCursor(),
         selections: editor.listSelections(),
         selection: selection.slice(0, MAX_SELECTION_CHARS),
@@ -111,7 +105,3 @@ export class WorkspaceTools {
   }
 }
 
-async function sha256(content: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}

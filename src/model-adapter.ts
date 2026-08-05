@@ -35,8 +35,7 @@ export interface ToolDefinition {
 }
 
 export interface ModelAdapter {
-  complete(messages: ModelMessage[], tools: ToolDefinition[], signal: AbortSignal): Promise<ModelReply>;
-  dispose?(): void;
+  complete(messages: ModelMessage[], tools: readonly ToolDefinition[], signal: AbortSignal): Promise<ModelReply>;
 }
 
 export type RequestTransport = (request: RequestUrlParam) => Promise<RequestUrlResponse>;
@@ -53,20 +52,8 @@ export async function fetchModelList(
   config: { baseUrl?: string; apiKey?: string },
   requestTransport: RequestTransport,
 ): Promise<string[]> {
-  const baseUrl = (config.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
-  const headers: Record<string, string> = {};
-  if (config.apiKey) {
-    headers.Authorization = `Bearer ${config.apiKey}`;
-  }
-  const response = await requestTransport({
-    url: `${baseUrl}/models`,
-    method: "GET",
-    headers,
-    throw: false,
-  });
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error(openAiError(response));
-  }
+  const endpoint = new OpenAiCompatibleEndpoint(config, requestTransport);
+  const response = await endpoint.request("/models", { method: "GET" });
   // Accepts both `{ data: [...] }` and bare-array /models responses.
   const json: unknown = response.json;
   const entries: unknown[] = Array.isArray(json)
@@ -87,23 +74,22 @@ export async function fetchModelList(
 }
 
 class OpenAiCompatibleAdapter implements ModelAdapter {
+  private readonly endpoint: OpenAiCompatibleEndpoint;
+
   constructor(
     private readonly config: ProviderConfig,
-    private readonly requestTransport: RequestTransport,
-  ) {}
+    requestTransport: RequestTransport,
+  ) {
+    this.endpoint = new OpenAiCompatibleEndpoint(config, requestTransport);
+  }
 
   async complete(
     messages: ModelMessage[],
-    tools: ToolDefinition[],
+    tools: readonly ToolDefinition[],
     signal: AbortSignal,
   ): Promise<ModelReply> {
     if (signal.aborted) {
       throw abortError();
-    }
-    const baseUrl = (this.config.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.config.apiKey) {
-      headers.Authorization = `Bearer ${this.config.apiKey}`;
     }
 
     const body: Record<string, unknown> = {
@@ -117,18 +103,13 @@ class OpenAiCompatibleAdapter implements ModelAdapter {
       body.reasoning_effort = this.config.thinkingEffort;
     }
 
-    const response = await this.requestTransport({
-      url: `${baseUrl}/chat/completions`,
+    const response = await this.endpoint.request("/chat/completions", {
       method: "POST",
-      headers,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      throw: false,
     });
     if (signal.aborted) {
       throw abortError();
-    }
-    if (response.status < 200 || response.status >= 300) {
-      throw new Error(openAiError(response));
     }
 
     const choice = response.json?.choices?.[0]?.message;
@@ -156,6 +137,44 @@ class OpenAiCompatibleAdapter implements ModelAdapter {
         totalTokens: numberOrUndefined(usage.total_tokens),
       } : undefined,
     };
+  }
+}
+
+interface EndpointRequest {
+  method: "GET" | "POST";
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+/** Shared request policy for one configured OpenAI-compatible model endpoint. */
+class OpenAiCompatibleEndpoint {
+  private readonly baseUrl: string;
+  private readonly authorization: string | undefined;
+
+  constructor(
+    config: { baseUrl?: string; apiKey?: string },
+    private readonly requestTransport: RequestTransport,
+  ) {
+    this.baseUrl = (config.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+    this.authorization = config.apiKey ? `Bearer ${config.apiKey}` : undefined;
+  }
+
+  async request(path: string, request: EndpointRequest): Promise<RequestUrlResponse> {
+    const headers = { ...request.headers };
+    if (this.authorization) {
+      headers.Authorization = this.authorization;
+    }
+    const response = await this.requestTransport({
+      url: `${this.baseUrl}${path}`,
+      method: request.method,
+      headers,
+      body: request.body,
+      throw: false,
+    });
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(openAiError(response));
+    }
+    return response;
   }
 }
 

@@ -7,12 +7,9 @@ import {
   type ProviderConfig,
   type RequestTransport,
 } from "./model-adapter";
-import { VAULT_TOOL_DEFINITIONS, VaultTools, type ChangePreview, type ToolResult } from "./vault-tools";
-import { WEB_TOOL_DEFINITION, WebContentReader } from "./web-content";
-import { WORKSPACE_TOOL_DEFINITION, WorkspaceTools } from "./workspace-tools";
+import { ModelTools, type PreparedChange, type ToolResult } from "./model-tools";
 
 const MAX_TOOL_ROUNDS = 12;
-const TOOL_DEFINITIONS = [...VAULT_TOOL_DEFINITIONS, WORKSPACE_TOOL_DEFINITION, WEB_TOOL_DEFINITION];
 
 export interface BolovanAgentOptions {
   app: App;
@@ -64,9 +61,7 @@ export type BolovanSessionSummary = ConversationSummary;
  */
 export class BolovanAgent {
   private readonly brain: BrainStore;
-  private readonly tools: VaultTools;
-  private readonly web: WebContentReader;
-  private readonly workspaceTools: WorkspaceTools;
+  private readonly tools: ModelTools;
   private adapter: ModelAdapter | undefined;
   private adapterKey = "";
   private listeners = new Set<(event: BolovanEvent) => void>();
@@ -88,9 +83,7 @@ export class BolovanAgent {
       onActiveBranch: options.onActiveBranch,
       onFolderResolved: options.onBrainFolder,
     });
-    this.tools = new VaultTools(options.app);
-    this.web = new WebContentReader(options.requestTransport);
-    this.workspaceTools = new WorkspaceTools(options.app);
+    this.tools = new ModelTools(options.app, options.requestTransport);
   }
 
   subscribe(listener: (event: BolovanEvent) => void): () => void {
@@ -173,7 +166,6 @@ export class BolovanAgent {
 
   dispose(): void {
     void this.cancel();
-    this.adapter?.dispose?.();
     this.adapter = undefined;
     this.listeners.clear();
   }
@@ -218,7 +210,7 @@ export class BolovanAgent {
         { role: "system", content: systemPrompt(instructions, this.brain.skillFolderPath()) },
         ...this.brain.messages(),
       ];
-      const reply = await adapter.complete(messages, TOOL_DEFINITIONS, signal);
+      const reply = await adapter.complete(messages, this.tools.definitions, signal);
       this.recordUsage(reply.usage);
       const assistant: ModelMessage = {
         role: "assistant",
@@ -264,14 +256,8 @@ export class BolovanAgent {
   }
 
   private async executeTool(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<ToolResult> {
-    if (name === "web_read") {
-      return this.web.read(args.url, signal);
-    }
-    if (name === "workspace") {
-      return this.workspaceTools.execute(args);
-    }
     const prepared = await this.tools.execute(name, args, signal);
-    if (!isChangePreview(prepared)) {
+    if (!isPreparedChange(prepared)) {
       return prepared;
     }
     const approved = await this.requestApproval(prepared);
@@ -285,7 +271,7 @@ export class BolovanAgent {
     }
   }
 
-  private requestApproval(change: ChangePreview): Promise<boolean> {
+  private requestApproval(change: PreparedChange): Promise<boolean> {
     if (!this.approvalResponder) {
       return Promise.resolve(false);
     }
@@ -304,7 +290,6 @@ export class BolovanAgent {
   private ensureAdapter(provider = this.options.provider()): ModelAdapter {
     const key = JSON.stringify(provider);
     if (!this.adapter || this.adapterKey !== key) {
-      this.adapter?.dispose?.();
       this.adapter = createModelAdapter(provider, this.options.requestTransport);
       this.adapterKey = key;
     }
@@ -354,7 +339,7 @@ function skillDevelopmentPrompt(skillFolder: string): string {
   ].join("\n");
 }
 
-function isChangePreview(value: ToolResult | ChangePreview): value is ChangePreview {
+function isPreparedChange(value: ToolResult | PreparedChange): value is PreparedChange {
   return "apply" in value;
 }
 

@@ -1,11 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { createModelAdapter, fetchModelList, type RequestTransport } from "../src/model-adapter";
 
+function parseBody(value: unknown): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(String(value));
+  if (!isRecord(parsed)) {
+    throw new Error("Expected an object request body");
+  }
+  return parsed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 describe("OpenAI-compatible model adapter", () => {
   it("normalizes assistant text, tool calls, and usage", async () => {
-    let body: any;
-    const transport: RequestTransport = async (request) => {
-      body = JSON.parse(String(request.body));
+    let request: Parameters<RequestTransport>[0] | undefined;
+    let body: Record<string, unknown> = {};
+    const transport: RequestTransport = async (sent) => {
+      request = sent;
+      body = parseBody(sent.body);
       return {
         status: 200,
         headers: {},
@@ -34,10 +48,21 @@ describe("OpenAI-compatible model adapter", () => {
       new AbortController().signal,
     );
 
-    expect(body.model).toBe("test-model");
-    expect(body.stream).toBe(false);
-    expect(body.reasoning_effort).toBe("high");
-    expect(body.tools[0].function.name).toBe("vault_read");
+    expect(request).toMatchObject({
+      url: "https://api.openai.com/v1/chat/completions",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer secret",
+      },
+      throw: false,
+    });
+    expect(body).toMatchObject({
+      model: "test-model",
+      stream: false,
+      reasoning_effort: "high",
+      tools: [{ function: { name: "vault_read" } }],
+    });
     expect(reply).toMatchObject({
       text: "I will read it.",
       toolCalls: [{ id: "call-1", name: "vault_read", arguments: { path: "Note.md" } }],
@@ -46,9 +71,9 @@ describe("OpenAI-compatible model adapter", () => {
   });
 
   it("omits disabled thinking for generic compatible endpoints", async () => {
-    let body: any;
+    let body: Record<string, unknown> = {};
     const transport: RequestTransport = async (request) => {
-      body = JSON.parse(String(request.body));
+      body = parseBody(request.body);
       return {
         status: 200,
         headers: {},

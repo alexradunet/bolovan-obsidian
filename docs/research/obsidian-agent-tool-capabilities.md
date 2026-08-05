@@ -276,7 +276,7 @@ editor_change(action: replace_selection, expected_buffer_hash, expected_ranges, 
 | Attachment import | Required | Downloaded byte hash/size/type, destination absence, target-note hash. | Trash asset plus reverse note edit. |
 | Hidden customization | Required | Strict capability/path check plus current config hash. | Deterministic backup/revert path. |
 
-All mutating tools must return a prepared `ChangePreview` and pass through the existing single approval gate. Tool implementations must never display a preview and then use a different serializer or path at commit.
+All mutating tools must return a Prepared change and pass through the existing single approval gate. Tool implementations must never display a preview and then use a different serializer or path at commit.
 
 ## Incremental implementation order
 
