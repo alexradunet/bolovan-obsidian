@@ -264,6 +264,18 @@ describe("Transcript live events", () => {
     });
   });
 
+  it("shows a workspace context action as its display target", () => {
+    const transcript = new Transcript();
+
+    transcript.apply({ type: "tool-start", name: "workspace", args: { action: "context" } });
+
+    expect(transcript.all()[0]).toMatchObject({
+      kind: "tool",
+      name: "workspace",
+      target: "context",
+    });
+  });
+
   it("adds a final item when a tool end arrives without a start", () => {
     const transcript = new Transcript();
 

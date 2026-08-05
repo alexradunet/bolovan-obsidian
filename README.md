@@ -14,7 +14,7 @@ The default brain folder is `system/Bolovan` and can be changed in settings. A m
 
 Bolovan can turn a reusable procedure from the conversation into a skill under the brain's `Skills` folder. It may propose a skill after a successful non-trivial workflow, a useful correction, or recovery from failure. Skill creation and updates use the same exact-preview approval as other vault changes, and skills can only describe how to use capabilities Bolovan already has.
 
-The composer can attach the active note and any `[[wikilink]]` mentions. Paste an HTTP or HTTPS link into a message and Bolovan can fetch it through Obsidian's cross-platform network API, extract readable text, and use that text to answer. Tool calls are visible in the transcript, runs are cancellable, and conversations can be resumed from the session picker.
+The composer can attach the active note and any `[[wikilink]]` mentions. Paste an HTTP or HTTPS link into a message and Bolovan can fetch it through Obsidian's cross-platform network API, extract readable text, and use that text to answer. Images embedded in an answer with Markdown or a vault image embed display directly in the conversation. Tool calls are visible in the transcript, runs are cancellable, and conversations can be resumed from the session picker.
 
 ## Development
 

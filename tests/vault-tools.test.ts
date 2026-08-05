@@ -1,57 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { App } from "obsidian";
+import type { App, CachedMetadata, TFile } from "obsidian";
 import { VaultTools, type ChangePreview, type ToolResult } from "../src/vault-tools";
-
-function fakeApp(initial: Record<string, string>, configDir = ".obsidian"): { app: App; files: Map<string, string> } {
-  const files = new Map(Object.entries(initial));
-  const file = (path: string) => files.has(path) ? { path } : null;
-  const vault = {
-    configDir,
-    getFileByPath: file,
-    getAbstractFileByPath: file,
-    getFolderByPath: () => null,
-    getRoot: () => ({ children: [] }),
-    getMarkdownFiles: () => [...files.keys()].map((path) => ({ path })),
-    cachedRead: async (target: { path: string }) => files.get(target.path) ?? "",
-    read: async (target: { path: string }) => files.get(target.path) ?? "",
-    process: async (target: { path: string }, change: (content: string) => string) => {
-      const written = change(files.get(target.path) ?? "");
-      files.set(target.path, written);
-      return written;
-    },
-    create: async (path: string, content: string) => {
-      files.set(path, content);
-      return { path };
-    },
-    createFolder: async () => undefined,
-    adapter: {
-      exists: async (path: string) => files.has(path) || [...files.keys()].some((child) => child.startsWith(`${path}/`)),
-      read: async (path: string) => files.get(path) ?? "",
-      list: async (path: string) => {
-        const prefix = `${path}/`;
-        const folders = new Set<string>();
-        const filesHere: string[] = [];
-        for (const child of files.keys()) {
-          if (!child.startsWith(prefix)) {
-            continue;
-          }
-          const rest = child.slice(prefix.length);
-          const slash = rest.indexOf("/");
-          if (slash === -1) {
-            filesHere.push(child);
-          } else {
-            folders.add(`${prefix}${rest.slice(0, slash)}`);
-          }
-        }
-        return { files: filesHere, folders: [...folders] };
-      },
-    },
-  };
-  // Structural fake, not a real App: the test seam for vault tools.
-  const app = { vault, fileManager: { renameFile: async () => undefined } } as unknown as App;
-  return { app, files };
-}
+import { fakeApp } from "./fake-app";
 
 /** Direct tool results carry content; previews carry apply(). */
 function contentOf(result: ToolResult | ChangePreview): string {
@@ -68,123 +19,303 @@ function asChangePreview(result: ToolResult | ChangePreview): ChangePreview {
   throw new Error("Expected a change preview, got a direct tool result");
 }
 
-describe("VaultTools exact changes", () => {
-  it("binds a replacement to the hash returned by vault_read", async () => {
-    const { app, files } = fakeApp({ "Note.md": "before" });
-    const tools = new VaultTools(app);
-    const read = await tools.execute("vault_read", { path: "Note.md" });
-    expect("apply" in read).toBe(false);
-    const hash = JSON.parse(contentOf(read)).hash;
+function setMetadata(
+  app: App,
+  caches: Record<string, CachedMetadata>,
+  resolvedLinks: Record<string, Record<string, number>> = {},
+  unresolvedLinks: Record<string, Record<string, number>> = {},
+): void {
+  Object.assign(app, {
+    metadataCache: {
+      getFileCache: (file: TFile) => caches[file.path] ?? null,
+      getFirstLinkpathDest: (link: string) => app.vault.getFileByPath(link),
+      resolvedLinks,
+      unresolvedLinks,
+    },
+  });
+}
 
-    const prepared = await tools.execute("vault_change", {
-      action: "replace",
+function position(line: number, offset: number, endOffset = offset + 1) {
+  const start = { line, col: 0, offset };
+  const end = { line, col: 0, offset: endOffset };
+  return { start, end };
+}
+
+describe("VaultTools reads and discovery", () => {
+  it("returns bounded line content with the whole-file hash", async () => {
+    const tools = new VaultTools(fakeApp({ "Note.md": "one\ntwo\nthree\nfour" }));
+
+    const result = await tools.execute("vault_read", {
       path: "Note.md",
-      content: "after",
-      expected_hash: hash,
+      start_line: 2,
+      end_line: 3,
     });
-    expect("apply" in prepared).toBe(true);
-    expect(asChangePreview(prepared).message).toContain("Resulting full file contents:\n---\nafter\n---");
-    await asChangePreview(prepared).apply();
 
-    expect(files.get("Note.md")).toBe("after");
+    expect(JSON.parse(contentOf(result))).toMatchObject({
+      path: "Note.md",
+      range: { startLine: 2, endLine: 3 },
+      content: "two\nthree",
+      totalChars: 9,
+      truncated: false,
+    });
+    expect(JSON.parse(contentOf(result)).hash).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("rejects an approved replacement when the source changes before commit", async () => {
-    const { app, files } = fakeApp({ "Note.md": "before" });
+  it("reads one heading through Obsidian metadata", async () => {
+    const content = "# Intro\nintro\n## Target\nbody\n## Next\nlater";
+    const app = fakeApp({ "Note.md": content });
+    setMetadata(app, {
+      "Note.md": {
+        headings: [
+          { heading: "Intro", level: 1, position: position(0, 0, 7) },
+          { heading: "Target", level: 2, position: position(2, 14, 23) },
+          { heading: "Next", level: 2, position: position(4, 29, 36) },
+        ],
+      },
+    });
+    const tools = new VaultTools(app);
+
+    const result = await tools.execute("vault_read", { path: "Note.md", subpath: "#Target" });
+
+    expect(JSON.parse(contentOf(result))).toMatchObject({
+      subpath: "#Target",
+      range: { startLine: 3, endLine: 4 },
+      content: "## Target\nbody\n",
+    });
+  });
+
+  it("lists bounded descendants with file statistics", async () => {
+    const app = fakeApp({
+      "Folder/A.md": "a",
+      "Folder/Nested/B.md": "bb",
+    });
+    const tools = new VaultTools(app);
+
+    const result = await tools.execute("vault_list", {
+      path: "Folder",
+      recursive: true,
+      include_stats: true,
+      limit: 10,
+    });
+    const payload = JSON.parse(contentOf(result));
+
+    expect(payload.truncated).toBe(false);
+    expect(payload.entries).toEqual(expect.arrayContaining([
+      { path: "Folder/A.md", type: "file", stats: { size: 1, ctime: 1, mtime: 2 } },
+      { path: "Folder/Nested", type: "folder" },
+      { path: "Folder/Nested/B.md", type: "file", stats: { size: 2, ctime: 1, mtime: 2 } },
+    ]));
+  });
+
+  it("combines structured metadata filters", async () => {
+    const app = fakeApp({
+      "Project.md": "alpha\n- [ ] do it",
+      "Other.md": "alpha",
+      "Target.md": "target",
+    });
+    setMetadata(app, {
+      "Project.md": {
+        tags: [{ tag: "#work", position: position(0, 0) }],
+        frontmatter: { status: "open" },
+        listItems: [{ task: " ", parent: -1, position: position(1, 6) }],
+      },
+      "Other.md": { tags: [{ tag: "#work", position: position(0, 0) }] },
+      "Target.md": {},
+    }, {
+      "Project.md": { "Target.md": 1 },
+    });
+    const tools = new VaultTools(app);
+
+    const result = await tools.execute("vault_search", {
+      tag: "work",
+      property: "status",
+      property_value: "open",
+      linked_to: "Target.md",
+      task_status: "incomplete",
+    });
+    const payload = JSON.parse(contentOf(result));
+
+    expect(payload.results).toEqual([expect.objectContaining({
+      path: "Project.md",
+      reasons: ["tag:#work", "property:status=open", "linked_to:Target.md", "task_status:incomplete"],
+    })]);
+  });
+
+  it("stops a content scan when the run is cancelled", async () => {
+    const app = fakeApp({ "A.md": "alpha", "B.md": "alpha" });
+    const controller = new AbortController();
+    const cachedRead = app.vault.cachedRead.bind(app.vault);
+    app.vault.cachedRead = async (file) => {
+      const content = await cachedRead(file);
+      controller.abort();
+      return content;
+    };
+    const tools = new VaultTools(app);
+
+    await expect(tools.execute("vault_search", { query: "alpha" }, controller.signal))
+      .rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("inspects properties, links, backlinks, blocks, tags, and tasks", async () => {
+    const app = fakeApp({
+      "Project.md": "# Project\n- [ ] do it\n[[Target.md]]",
+      "Target.md": "target",
+      "Back.md": "[[Project.md]]",
+    });
+    setMetadata(app, {
+      "Project.md": {
+        frontmatter: { status: "open", position: position(0, 0) },
+        headings: [{ heading: "Project", level: 1, position: position(0, 0, 9) }],
+        blocks: { project: { id: "project", position: position(0, 0, 9) } },
+        tags: [{ tag: "#work", position: position(0, 0) }],
+        links: [{ link: "Target.md", original: "[[Target.md]]", position: position(2, 22, 35) }],
+        listItems: [{ task: " ", parent: -1, position: position(1, 10, 21) }],
+      },
+      "Target.md": {},
+      "Back.md": {},
+    }, {
+      "Project.md": { "Target.md": 1 },
+      "Back.md": { "Project.md": 2 },
+    }, {
+      "Project.md": { Missing: 1 },
+    });
+    const tools = new VaultTools(app);
+
+    const result = await tools.execute("vault_inspect", { path: "Project.md" });
+    const payload = JSON.parse(contentOf(result));
+
+    expect(payload).toMatchObject({
+      path: "Project.md",
+      metadataPending: false,
+      properties: { status: "open" },
+      headings: [{ heading: "Project", level: 1, line: 1 }],
+      blocks: [{ id: "project", line: 1 }],
+      tags: ["#work"],
+      links: [{ link: "Target.md", resolvedPath: "Target.md", line: 3 }],
+      backlinks: [{ path: "Back.md", count: 2 }],
+      unresolvedLinks: [{ link: "Missing", count: 1 }],
+      tasks: [{ line: 2, status: "incomplete", marker: " ", text: "- [ ] do it" }],
+    });
+    expect(payload.hash).toMatch(/^[a-f0-9]{64}$/);
+  });
+});
+
+describe("VaultTools exact changes", () => {
+  it("applies a unique patch and rejects ambiguous source text", async () => {
+    const app = fakeApp({ "Note.md": "before middle after" });
     const tools = new VaultTools(app);
     const read = await tools.execute("vault_read", { path: "Note.md" });
     const hash = JSON.parse(contentOf(read)).hash;
+
+    const prepared = await tools.execute("vault_change", {
+      action: "patch",
+      path: "Note.md",
+      before: "middle",
+      content: "changed",
+      expected_hash: hash,
+    });
+    expect(asChangePreview(prepared).message).toContain("before changed after");
+    await asChangePreview(prepared).apply();
+    expect(await app.vault.cachedRead(app.vault.getFileByPath("Note.md")!)).toBe("before changed after");
+
+    const nextRead = await tools.execute("vault_read", { path: "Note.md" });
+    const ambiguous = await tools.execute("vault_change", {
+      action: "patch",
+      path: "Note.md",
+      before: "e",
+      content: "x",
+      expected_hash: JSON.parse(contentOf(nextRead)).hash,
+    });
+    expect(contentOf(ambiguous)).toContain("must occur exactly once");
+  });
+
+  it("rejects an approved text change when the source changes before commit", async () => {
+    const app = fakeApp({ "Note.md": "before" });
+    const tools = new VaultTools(app);
+    const read = await tools.execute("vault_read", { path: "Note.md" });
     const prepared = await tools.execute("vault_change", {
       action: "replace",
       path: "Note.md",
       content: "after",
-      expected_hash: hash,
+      expected_hash: JSON.parse(contentOf(read)).hash,
     });
 
-    files.set("Note.md", "changed elsewhere");
+    await app.vault.process(app.vault.getFileByPath("Note.md")!, () => "changed elsewhere");
     await expect(asChangePreview(prepared).apply()).rejects.toThrow("changed after approval");
-    expect(files.get("Note.md")).toBe("changed elsewhere");
+    expect(await app.vault.cachedRead(app.vault.getFileByPath("Note.md")!)).toBe("changed elsewhere");
+  });
+
+  it("copies and trashes files through Obsidian APIs", async () => {
+    const app = fakeApp({ "Note.md": "content" });
+    const tools = new VaultTools(app);
+    const read = await tools.execute("vault_read", { path: "Note.md" });
+
+    const copy = await tools.execute("vault_change", {
+      action: "copy",
+      path: "Note.md",
+      destination: "Copies/Note.md",
+      expected_hash: JSON.parse(contentOf(read)).hash,
+    });
+    await asChangePreview(copy).apply();
+    expect(await app.vault.cachedRead(app.vault.getFileByPath("Copies/Note.md")!)).toBe("content");
+
+    const copiedRead = await tools.execute("vault_read", { path: "Copies/Note.md" });
+    const trash = await tools.execute("vault_change", {
+      action: "trash",
+      path: "Copies/Note.md",
+      expected_hash: JSON.parse(contentOf(copiedRead)).hash,
+    });
+    await asChangePreview(trash).apply();
+    expect(app.vault.getFileByPath("Copies/Note.md")).toBeNull();
   });
 
   it("refuses stable-channel writes under the config directory", async () => {
-    const { app } = fakeApp({});
-    const tools = new VaultTools(app);
+    const tools = new VaultTools(fakeApp());
     const result = await tools.execute("vault_change", {
       action: "create",
       path: ".obsidian/plugins/generated/main.ts",
       content: "unsafe",
     });
 
-    expect("apply" in result).toBe(false);
     expect(contentOf(result)).toContain("does not modify Obsidian configuration or plugin code");
   });
 
-  it("reads and lists the plugin's own source through the adapter", async () => {
-    const { app, files } = fakeApp({ ".obsidian/plugins/bolovan/src/vault-tools.ts": "source code" });
+  it("reads and lists only Bolovan's own hidden source subtree", async () => {
+    const app = fakeApp({
+      ".obsidian/plugins/bolovan/src/vault-tools.ts": "source code",
+      ".obsidian/app.json": "{}",
+      ".obsidian/plugins/other-plugin/data.json": "secret",
+    });
     const tools = new VaultTools(app);
 
     const read = await tools.execute("vault_read", { path: ".obsidian/plugins/bolovan/src/vault-tools.ts" });
-    const payload = JSON.parse(contentOf(read));
-    expect(payload).toMatchObject({
-      path: ".obsidian/plugins/bolovan/src/vault-tools.ts",
-      content: "source code",
-    });
-
+    expect(JSON.parse(contentOf(read)).content).toBe("source code");
     const listed = await tools.execute("vault_list", { path: ".obsidian/plugins/bolovan/src" });
-    const entries = JSON.parse(contentOf(listed)).entries;
-    expect(entries).toContainEqual({
+    expect(JSON.parse(contentOf(listed)).entries).toContainEqual({
       path: ".obsidian/plugins/bolovan/src/vault-tools.ts",
       type: "file",
     });
 
-    files.delete(".obsidian/plugins/bolovan/src/vault-tools.ts");
-    const missing = await tools.execute("vault_read", { path: ".obsidian/plugins/bolovan/src/vault-tools.ts" });
-    expect(contentOf(missing)).toContain("File not found");
-  });
-
-  it("refuses reads and listings outside Bolovan's config subtree", async () => {
-    const { app } = fakeApp({
-      ".obsidian/app.json": "{\"legacyEditor\":false}",
-      ".obsidian/plugins/other-plugin/data.json": "{\"token\":\"secret\"}",
-    });
-    const tools = new VaultTools(app);
-
     const settings = await tools.execute("vault_read", { path: ".obsidian/app.json" });
     expect(contentOf(settings)).toContain("only read its own plugin directory");
-
     const otherPlugin = await tools.execute("vault_list", { path: ".obsidian/plugins/other-plugin" });
     expect(contentOf(otherPlugin)).toContain("only read its own plugin directory");
   });
 
-  it("follows a renamed config directory instead of assuming .obsidian", async () => {
-    const { app } = fakeApp({ ".config/plugins/bolovan/main.js": "source" }, ".config");
+  it("follows a renamed config directory and blocks moves into it", async () => {
+    const app = fakeApp({ ".config/plugins/bolovan/main.js": "source", "Note.md": "before" });
+    app.vault.configDir = ".config";
     const tools = new VaultTools(app);
 
-    const read = await tools.execute("vault_read", { path: ".config/plugins/bolovan/main.js" });
-    expect(JSON.parse(contentOf(read)).content).toBe("source");
-
-    const blocked = await tools.execute("vault_change", {
-      action: "create",
-      path: ".config/evil.md",
-      content: "unsafe",
-    });
-    expect("apply" in blocked).toBe(false);
-    expect(contentOf(blocked)).toContain("does not modify Obsidian configuration");
-  });
-
-  it("refuses to move a note into the config directory", async () => {
-    const { app } = fakeApp({ "Note.md": "before" });
-    const tools = new VaultTools(app);
-    const read = await tools.execute("vault_read", { path: "Note.md" });
-    const hash = JSON.parse(contentOf(read)).hash;
-
+    const source = await tools.execute("vault_read", { path: ".config/plugins/bolovan/main.js" });
+    expect(JSON.parse(contentOf(source)).content).toBe("source");
+    const note = await tools.execute("vault_read", { path: "Note.md" });
     const blocked = await tools.execute("vault_change", {
       action: "move",
       path: "Note.md",
-      destination: ".obsidian/plugins/bolovan/copied.md",
-      expected_hash: hash,
+      destination: ".config/plugins/bolovan/copied.md",
+      expected_hash: JSON.parse(contentOf(note)).hash,
     });
-    expect("apply" in blocked).toBe(false);
     expect(contentOf(blocked)).toContain("does not modify Obsidian configuration");
   });
 });

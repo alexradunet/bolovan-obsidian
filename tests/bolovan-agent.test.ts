@@ -141,6 +141,43 @@ describe("BolovanAgent tool loop", () => {
   });
 });
 
+describe("BolovanAgent response format", () => {
+  it("tells the model how to embed web and vault images", async () => {
+    let systemPrompt = "";
+    let toolNames: string[] = [];
+    const transport: RequestTransport = async (request) => {
+      const body = JSON.parse(String(request.body)) as {
+        messages: Array<{ role: string; content: string }>;
+        tools: Array<{ function: { name: string } }>;
+      };
+      systemPrompt = body.messages.find((message) => message.role === "system")?.content ?? "";
+      toolNames = body.tools.map((tool) => tool.function.name);
+      return {
+        status: 200,
+        headers: {},
+        arrayBuffer: new ArrayBuffer(0),
+        text: "",
+        json: { choices: [{ message: { content: "done" } }] },
+      };
+    };
+    const agent = new BolovanAgent({
+      app: fakeApp(),
+      brainFolder: "Brain",
+      deviceId: "local",
+      provider: () => ({ model: "test-model" }),
+      requestTransport: transport,
+    });
+
+    await agent.ask("show me an image");
+
+    expect(systemPrompt).toContain("![alt](URL)");
+    expect(systemPrompt).toContain("![[vault/path.png]]");
+    expect(systemPrompt).toContain("Prefer vault_change patch");
+    expect(systemPrompt).toContain("Open a note only when the user asks to navigate");
+    expect(toolNames).toEqual(expect.arrayContaining(["vault_inspect", "workspace"]));
+  });
+});
+
 describe("BolovanAgent self-developed skills", () => {
   it("loads an approved skill on the next model round", async () => {
     const app = fakeApp();

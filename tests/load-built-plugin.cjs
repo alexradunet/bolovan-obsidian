@@ -1,5 +1,6 @@
 const Module = require("node:module");
 const fs = require("node:fs");
+const assert = require("node:assert/strict");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -26,6 +27,13 @@ Module._load = function loadWithObsidianStub(request, parent, isMain) {
 
   return originalLoad.call(this, request, parent, isMain);
 };
+
+const builtBundle = fs.readFileSync(path.resolve(__dirname, "../main.js"), "utf8");
+assert.doesNotMatch(
+  builtBundle,
+  /name:"Provider"|providerKind/,
+  "Built plugin still includes the obsolete provider selector",
+);
 
 try {
   const temporaryBundle = path.join(os.tmpdir(), "bolovan-load-test.cjs");

@@ -300,7 +300,7 @@ function messageText(content: unknown): string {
 }
 
 function toolTarget(args: Record<string, unknown> | undefined): string {
-  const target = args?.path ?? args?.url ?? args?.query ?? args?.command ?? args?.pattern ?? "";
+  const target = args?.path ?? args?.url ?? args?.query ?? args?.action ?? args?.command ?? args?.pattern ?? "";
   return String(target);
 }
 

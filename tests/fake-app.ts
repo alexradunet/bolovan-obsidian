@@ -20,6 +20,7 @@ export function fakeApp(initial: Record<string, string> = {}): App {
       basename: (path.split("/").at(-1) ?? path).replace(/\.[^.]+$/, ""),
       extension: path.includes(".") ? path.slice(path.lastIndexOf(".") + 1) : "",
       parent: { path: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "" },
+      stat: { ctime: 1, mtime: 2, size: (files.get(path) ?? "").length },
     });
     return file;
   };
@@ -79,8 +80,23 @@ export function fakeApp(initial: Record<string, string> = {}): App {
       files.set(path, next);
       return next;
     },
+    copy: async (file: TFile, destination: string) => {
+      const source = (file as TFile & { path: string }).path;
+      const content = files.get(source);
+      if (content === undefined || files.has(destination)) {
+        throw new Error(`Could not copy ${source} to ${destination}`);
+      }
+      addParentFolders(destination, folders);
+      files.set(destination, content);
+      return fileAt(destination);
+    },
     adapter: {
       exists: async (path: string) => files.has(path) || folders.has(path),
+      stat: async (path: string) => files.has(path)
+        ? { type: "file", ctime: 1, mtime: 2, size: (files.get(path) ?? "").length }
+        : folders.has(path)
+          ? { type: "folder", ctime: 1, mtime: 2, size: 0 }
+          : null,
       read: async (path: string) => files.get(path) ?? "",
       list: async (path: string) => {
         const prefix = path ? `${path}/` : "";
@@ -105,6 +121,15 @@ export function fakeApp(initial: Record<string, string> = {}): App {
         addParentFolders(destination, folders);
         files.set(destination, content);
       },
+      trashFile: async (file: TFile) => {
+        files.delete((file as TFile & { path: string }).path);
+      },
+    },
+    metadataCache: {
+      getFileCache: () => null,
+      getFirstLinkpathDest: () => null,
+      resolvedLinks: {},
+      unresolvedLinks: {},
     },
   };
 

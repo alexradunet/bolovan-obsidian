@@ -62,7 +62,8 @@ working on the plugin.
 - `src/bolovan-agent.ts` — harness orchestration and tool loop
 - `src/model-adapter.ts` — the OpenAI-compatible model adapter
 - `src/brain-store.ts` — portable brain and conversation persistence
-- `src/vault-tools.ts` — the four Obsidian-native vault tools and approvals
+- `src/vault-tools.ts` — bounded vault discovery and approval-gated changes
+- `src/workspace-tools.ts` — active-editor context and safe note navigation
 - `src/chat-view.ts`, `src/composer.ts`, `src/context.ts` — user interface and note attachments
 - `src/transcript.ts` — portable transcript semantics
 - `tests/` — unit, integration, and built-plugin smoke tests
@@ -232,7 +233,7 @@ These are requirements, not suggestions:
   configuration capabilities, conversations, and approvals are supported on
   desktop, iOS, and Android. Do not import Node built-ins or depend on native
   processes.
-- Bolovan owns its harness. Model configuration lives behind `ModelAdapter`; Vault behavior varies behind the four-tool adapter. See `docs/adr/0001-native-cross-platform-harness.md`.
+- Bolovan owns its harness. Model configuration lives behind `ModelAdapter`; Obsidian behavior lives behind the small model-facing tool interface defined in `docs/adr/0001-native-cross-platform-harness.md`.
 - The only supported model configuration is a single OpenAI-compatible
   endpoint. The bundled model runtime was removed in v0.4; reintroducing it
   requires the full dependency admission test again.
@@ -274,6 +275,7 @@ These are requirements, not suggestions:
 ## Verification
 
 - Test provider normalization, tool-loop stopping, cancellation, exact approvals, stale-write rejection, and device-branch forking through module interfaces.
+- Test bounded reads, metadata discovery, cancellable scans, workspace navigation that preserves the chat leaf, and native copy/trash through module interfaces.
 - Transcript semantics live in `src/transcript.ts` and are tested without an Obsidian runtime.
 - Integration tests use synthetic in-memory adapters and never a personal vault, credential, or provider account.
 - Release smoke tests cover the minimum supported Obsidian version, current

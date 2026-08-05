@@ -14,11 +14,18 @@ Obsidian provides the common boundaries we need on every platform: `Vault` and `
 Bolovan owns a small native harness with two deep seams:
 
 - A normalized model adapter speaks one OpenAI-compatible Chat Completions endpoint, configured by base URL, API key, and model name.
-- A Vault tool adapter exposes exactly `vault_read`, `vault_search`, `vault_list`, and `vault_change` through Obsidian APIs.
+- A model-facing tool interface exposes a small set of deep, user-intent capabilities implemented directly with Obsidian's public APIs.
+
+The stable tool set is `vault_read`, `vault_search`, `vault_list`,
+`vault_inspect`, `vault_change`, `workspace`, and `web_read`. The vault tools
+provide bounded text, structured metadata, deterministic changes, and native
+file lifecycle operations. `workspace` provides active-editor context and
+user-requested navigation without replacing Bolovan's chat leaf. New
+capabilities deepen these interfaces before adding another model-facing tool.
 
 There are no process, shell, raw-filesystem, or Node runtime dependencies, and no on-device model runtime: the model is always a remote endpoint.
 
-Every mutation is a two-phase operation. The adapter prepares and displays the exact resulting content or move, the user approves it, and the commit rechecks the source SHA-256. A stale approval writes nothing.
+Every content or vault-structure mutation is a two-phase operation. The adapter prepares and displays the exact resulting content or operation, the user approves it, and the commit rechecks the source SHA-256 or current state. A stale approval writes nothing.
 
 Portable configuration lives in a visible, configurable brain folder identified by `bolovan-brain.json`. Instructions, skills, and per-device conversation branches sync with the vault. API keys, provider configuration, cache data, the device id, and active-branch selection remain device-local. A device never writes another device's branch; it forks before appending.
 
