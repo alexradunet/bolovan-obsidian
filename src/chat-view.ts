@@ -39,10 +39,8 @@ export class BolovanChatView extends ItemView {
   private activeNoteToggleEl!: HTMLButtonElement;
   private newSessionButtonEl!: HTMLButtonElement;
   private sessionSelectEl!: HTMLSelectElement;
-  private statusEl!: HTMLElement;
   private statsEl!: HTMLElement;
   private pinnedToBottom = true;
-  private hasRunActivity = false;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -135,7 +133,6 @@ export class BolovanChatView extends ItemView {
     this.transcriptEl.addEventListener("scroll", () => this.onTranscriptScroll());
     this.transcriptEl.addEventListener("click", (event) => this.onTranscriptClick(event));
     this.buildEmptyState();
-    this.buildStatus();
 
     this.jumpButtonEl = transcriptStage.createEl("button", {
       cls: "bolovan-chat__jump clickable-icon",
@@ -207,14 +204,6 @@ export class BolovanChatView extends ItemView {
     }
   }
 
-  private buildStatus(): void {
-    this.statusEl = this.transcriptEl.createDiv({
-      cls: "bolovan-chat__status",
-      attr: { role: "status", "aria-live": "polite" },
-      text: "Waiting for your input",
-    });
-  }
-
   // ----- transcript adapter ----------------------------------------------
 
   private async loadTranscript(): Promise<void> {
@@ -227,7 +216,6 @@ export class BolovanChatView extends ItemView {
     this.assistantPaintScheduled.clear();
     this.transcriptEl.empty();
     this.buildEmptyState();
-    this.buildStatus();
     this.pinnedToBottom = true;
 
     try {
@@ -265,7 +253,6 @@ export class BolovanChatView extends ItemView {
     } else {
       el = this.transcriptEl.createDiv({ cls: `bolovan-message bolovan-message--${item.kind}` });
     }
-    this.transcriptEl.insertBefore(el, this.statusEl);
     this.updateEmptyState();
     this.paintItem(item, el);
     this.scrollToBottom(false);
@@ -367,7 +354,6 @@ export class BolovanChatView extends ItemView {
 
     if (event.type === "settled") {
       this.transcript.apply(event);
-      this.hasRunActivity = false;
       this.setRunning(false);
       this.scrollToBottom(true);
       // Runs can also be triggered from outside the view (plugin commands);
@@ -379,13 +365,11 @@ export class BolovanChatView extends ItemView {
 
     if (event.type === "exited") {
       this.transcript.apply(event);
-      this.hasRunActivity = false;
       this.setRunning(false);
       return;
     }
 
     if (event.type === "text" || event.type === "tool-start") {
-      this.hasRunActivity = true;
       this.setRunning(true);
     }
     this.transcript.apply(event);
@@ -395,8 +379,6 @@ export class BolovanChatView extends ItemView {
     this.rootEl.toggleClass("is-running", running);
     this.sendButtonEl.setText(running ? "Stop" : "Send");
     this.sendButtonEl.setAttr("aria-label", running ? "Stop response" : "Send message");
-    const runningText = this.hasRunActivity ? "Working…" : "Thinking…";
-    this.statusEl.setText(running ? runningText : "Waiting for your input");
     this.sessionSelectEl.disabled = running;
     this.newSessionButtonEl.disabled = running;
   }
@@ -421,7 +403,6 @@ export class BolovanChatView extends ItemView {
     // the transcript.
     const alreadyRunning = this.plugin.agent?.status().isRunning ?? false;
     if (!alreadyRunning) {
-      this.hasRunActivity = false;
       this.setRunning(true);
       this.transcript.runStarted();
     }
