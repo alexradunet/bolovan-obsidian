@@ -1,4 +1,5 @@
 import type { BolovanEvent } from "./bolovan-agent";
+import type { ModelMessage } from "./model-adapter";
 import { splitAttachedNotes } from "./context";
 
 export type TranscriptToolStatus = "running" | "done" | "error";
@@ -39,6 +40,13 @@ export type TranscriptItem =
   | TranscriptToolItem
   | TranscriptSystemItem;
 
+type TranscriptHistoryMessage = ModelMessage & { attachments?: unknown };
+type TranscriptItemFields =
+  | Omit<TranscriptUserItem, "id">
+  | Omit<TranscriptAssistantItem, "id">
+  | Omit<TranscriptToolItem, "id">
+  | Omit<TranscriptSystemItem, "id">;
+
 /**
  * The ordered on-screen record of a conversation. Items only ever append;
  * nothing reorders or disappears. The module owns every semantic rule —
@@ -68,7 +76,7 @@ export class Transcript {
   }
 
   /** Replace the transcript with the rendered history of a session. */
-  loadHistory(messages: any[]): void {
+  loadHistory(messages: TranscriptHistoryMessage[]): void {
     this.itemList = [];
     this.openAssistantId = undefined;
 
@@ -124,10 +132,6 @@ export class Transcript {
       return;
     }
 
-    if (event.type === "notify") {
-      this.note(event.message);
-    }
-    // ui-request is dialog traffic, not transcript content.
   }
 
   /** A user message sent from this surface, optionally with attached notes. */
@@ -193,7 +197,7 @@ export class Transcript {
     return undefined;
   }
 
-  private applyHistoryMessage(message: any): void {
+  private applyHistoryMessage(message: TranscriptHistoryMessage): void {
     if (!message || typeof message !== "object") {
       return;
     }
@@ -268,8 +272,8 @@ export class Transcript {
   private append(fields: Omit<TranscriptAssistantItem, "id">): TranscriptAssistantItem;
   private append(fields: Omit<TranscriptToolItem, "id">): TranscriptToolItem;
   private append(fields: Omit<TranscriptSystemItem, "id">): TranscriptSystemItem;
-  private append(fields: any): any {
-    const item = { ...fields, id: `item-${this.nextItemNumber}` };
+  private append(fields: TranscriptItemFields): TranscriptItem {
+    const item = { ...fields, id: `item-${this.nextItemNumber}` } as TranscriptItem;
     this.nextItemNumber += 1;
     this.itemList.push(item);
     return item;

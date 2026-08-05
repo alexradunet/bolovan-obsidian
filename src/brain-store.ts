@@ -63,9 +63,6 @@ export class BrainStore {
     this.options.onFolderResolved?.(this.folder);
   }
 
-  brainFolder(): string {
-    return this.folder;
-  }
 
   activeBranchPath(): string | undefined {
     return this.activePath;
@@ -130,10 +127,6 @@ export class BrainStore {
     this.setActive(path);
   }
 
-  reset(): void {
-    this.activePath = undefined;
-    this.options.onActiveBranch?.("");
-  }
 
   async instructions(): Promise<string> {
     const file = this.app.vault.getFileByPath(`${this.folder}/Instructions.md`);
@@ -217,7 +210,7 @@ export class BrainStore {
 
   private async ensureStructure(): Promise<void> {
     await ensureFolder(this.app, this.folder);
-    for (const name of ["Skills", "Prompts", "Sessions"]) {
+    for (const name of ["Skills", "Sessions"]) {
       await ensureFolder(this.app, `${this.folder}/${name}`);
     }
     if (!this.app.vault.getFileByPath(`${this.folder}/${MANIFEST_NAME}`)) {

@@ -56,7 +56,7 @@ export default class BolovanPlugin extends Plugin {
       await this.saveSettings();
     }
 
-    this.agentInternal = BolovanAgent.create({
+    this.agentInternal = new BolovanAgent({
       app: this.app,
       brainFolder: this.bolovanSettings.brainFolder,
       deviceId: this.bolovanSettings.deviceId,
@@ -155,10 +155,7 @@ export default class BolovanPlugin extends Plugin {
   }
 
   async setBrainFolder(folder: string): Promise<void> {
-    const value = folder.trim().replace(/^\/+|\/+$/g, "");
-    if (!value || value.startsWith(".") || value.includes("..")) {
-      throw new Error("Choose a visible folder inside the vault");
-    }
+    const value = brainFolderValue(folder);
     this.bolovanSettings.brainFolder = value;
     await this.saveSettings();
     new Notice("Reload Bolovan to use the new brain folder");
@@ -191,9 +188,6 @@ export default class BolovanPlugin extends Plugin {
     await this.agentInternal.start();
   }
 
-  stopAgent(): void {
-    this.agentInternal?.stop();
-  }
 
   async openChatView(): Promise<void> {
     const existingLeaf = this.app.workspace.getLeavesOfType(BOLOVAN_CHAT_VIEW)[0];
@@ -379,7 +373,7 @@ class BolovanSettingTab extends PluginSettingTab {
       },
       {
         name: "AI brain folder",
-        desc: "Visible folder inside the vault containing portable instructions, skills, prompts, and conversation branches.",
+        desc: "Visible folder inside the vault containing portable instructions, skills, and conversation branches.",
         control: {
           type: "text",
           key: "brainFolder",
@@ -403,12 +397,20 @@ class BolovanSettingTab extends PluginSettingTab {
 }
 
 
-/** Inline mirror of setBrainFolder's validation; the setter stays authoritative. */
 function validBrainFolder(folder: string): string | void {
+  try {
+    brainFolderValue(folder);
+  } catch (error) {
+    return describeError(error);
+  }
+}
+
+function brainFolderValue(folder: string): string {
   const value = folder.trim().replace(/^\/+|\/+$/g, "");
   if (!value || value.startsWith(".") || value.includes("..")) {
-    return "Choose a visible folder inside the vault";
+    throw new Error("Choose a visible folder inside the vault");
   }
+  return value;
 }
 
 function knownSettings(loaded: Partial<BolovanSettings> | undefined): Partial<BolovanSettings> {

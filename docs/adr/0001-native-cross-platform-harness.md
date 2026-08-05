@@ -20,7 +20,7 @@ There are no process, shell, raw-filesystem, or Node runtime dependencies, and n
 
 Every mutation is a two-phase operation. The adapter prepares and displays the exact resulting content or move, the user approves it, and the commit rechecks the source SHA-256. A stale approval writes nothing.
 
-Portable configuration lives in a visible, configurable brain folder identified by `bolovan-brain.json`. Instructions, skills, prompts, and per-device conversation branches sync with the vault. API keys, provider configuration, cache data, the device id, and active-branch selection remain device-local. A device never writes another device's branch; it forks before appending.
+Portable configuration lives in a visible, configurable brain folder identified by `bolovan-brain.json`. Instructions, skills, and per-device conversation branches sync with the vault. API keys, provider configuration, cache data, the device id, and active-branch selection remain device-local. A device never writes another device's branch; it forks before appending.
 
 ## Consequences
 

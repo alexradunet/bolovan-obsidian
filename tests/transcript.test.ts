@@ -211,15 +211,13 @@ describe("Transcript live events", () => {
     expect(transcript.all()[0]).toMatchObject({ kind: "tool", name: "grep", status: "error" });
   });
 
-  it("renders notify and exited events as system lines", () => {
+  it("renders exited events as system lines", () => {
     const transcript = new Transcript();
 
-    applyAll(transcript, [
-      { type: "notify", message: "Command blocked", notifyType: "warning" },
-      { type: "exited", message: "Provider request failed." },
-    ]);
+    transcript.apply({ type: "exited", message: "Provider request failed." });
 
-    expect(transcript.all().map((item) => item.kind)).toEqual(["system", "system"]);
+    expect(transcript.all()).toHaveLength(1);
+    expect(transcript.all()[0]).toMatchObject({ kind: "system" });
   });
 });
 

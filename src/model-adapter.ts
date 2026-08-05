@@ -136,11 +136,15 @@ class OpenAiCompatibleAdapter implements ModelAdapter {
       throw new Error("The provider returned no assistant message");
     }
     const toolCalls = Array.isArray(choice.tool_calls)
-      ? choice.tool_calls.map((call: any, index: number) => ({
-          id: String(call?.id ?? `call-${index}`),
-          name: String(call?.function?.name ?? "unknown"),
-          arguments: parseArguments(call?.function?.arguments),
-        }))
+      ? choice.tool_calls.map((value: unknown, index: number) => {
+          const call = objectOrEmpty(value);
+          const fn = objectOrEmpty(call.function);
+          return {
+            id: String(call.id ?? `call-${index}`),
+            name: String(fn.name ?? "unknown"),
+            arguments: parseArguments(fn.arguments),
+          };
+        })
       : [];
     const usage = response.json?.usage;
     return {

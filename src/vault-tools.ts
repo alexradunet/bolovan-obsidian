@@ -69,6 +69,7 @@ export class VaultTools {
     // Obsidian's Vault API never exposes the config directory; reads there
     // use the adapter directly. Writes stay sealed: vault_change refuses them.
     if (this.isConfigPath(path)) {
+      this.assertReadableConfigPath(path);
       const adapter = this.app.vault.adapter;
       if (!(await adapter.exists(path))) {
         return { content: `File not found: ${path}`, isError: true };
@@ -111,6 +112,7 @@ export class VaultTools {
     // Same exception as vault_read: Obsidian's Vault API hides the config
     // directory.
     if (this.isConfigPath(path)) {
+      this.assertReadableConfigPath(path);
       const adapter = this.app.vault.adapter;
       if (!(await adapter.exists(path))) {
         return { content: `Folder not found: ${path}`, isError: true };
@@ -232,6 +234,13 @@ export class VaultTools {
     return path === configDir || path.startsWith(`${configDir}/`);
   }
 
+  private assertReadableConfigPath(path: string): void {
+    const pluginRoot = `${this.app.vault.configDir}/plugins/bolovan`;
+    if (path !== pluginRoot && !path.startsWith(`${pluginRoot}/`)) {
+      throw new Error("Bolovan can only read its own plugin directory under Obsidian configuration");
+    }
+  }
+
   private async ensureParent(path: string): Promise<void> {
     const parts = path.split("/").slice(0, -1);
     let current = "";
@@ -287,9 +296,8 @@ function safePath(value: string): string {
   return normalized;
 }
 
-// Config-directory paths bypass the traversal checks: vault_read and
-// vault_list may reach them, but vault_change refuses them before any
-// preview or write.
+// Reads and listings may reach Bolovan's own config-directory subtree, but
+// vault_change refuses every config-directory path before any preview or write.
 function rawPath(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error("path must be a non-empty string");

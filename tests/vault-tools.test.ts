@@ -142,6 +142,20 @@ describe("VaultTools exact changes", () => {
     expect(contentOf(missing)).toContain("File not found");
   });
 
+  it("refuses reads and listings outside Bolovan's config subtree", async () => {
+    const { app } = fakeApp({
+      ".obsidian/app.json": "{\"legacyEditor\":false}",
+      ".obsidian/plugins/other-plugin/data.json": "{\"token\":\"secret\"}",
+    });
+    const tools = new VaultTools(app);
+
+    const settings = await tools.execute("vault_read", { path: ".obsidian/app.json" });
+    expect(contentOf(settings)).toContain("only read its own plugin directory");
+
+    const otherPlugin = await tools.execute("vault_list", { path: ".obsidian/plugins/other-plugin" });
+    expect(contentOf(otherPlugin)).toContain("only read its own plugin directory");
+  });
+
   it("follows a renamed config directory instead of assuming .obsidian", async () => {
     const { app } = fakeApp({ ".config/plugins/bolovan/main.js": "source" }, ".config");
     const tools = new VaultTools(app);

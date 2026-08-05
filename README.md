@@ -10,7 +10,7 @@ Bolovan talks to one OpenAI-compatible endpoint. Configure the base URL, model n
 
 The harness exposes four vault tools: read a file, search notes, list a folder, and change a file. Every change displays the exact resulting content or move for approval. The commit then rechecks the note's SHA-256; if it changed after preview, nothing is written. The agent can read and list its own plugin source under `.obsidian/plugins/bolovan`, but every write under `.obsidian` stays refused.
 
-The default brain folder is `system/Bolovan` and can be changed in settings. A manifest lets another device auto-discover it. Instructions, skills, prompts, and device-owned conversation branches sync as ordinary vault files. Concurrent branches are preserved and never automatically merged.
+The default brain folder is `system/Bolovan` and can be changed in settings. A manifest lets another device auto-discover it. Instructions, skills, and device-owned conversation branches sync as ordinary vault files. Concurrent branches are preserved and never automatically merged.
 
 The composer can attach the active note and any `[[wikilink]]` mentions. Paste an HTTP or HTTPS link into a message and Bolovan can fetch it through Obsidian's cross-platform network API, extract readable text, and use that text to answer. Tool calls are visible in the transcript, runs are cancellable, and conversations can be resumed from the session picker.
 

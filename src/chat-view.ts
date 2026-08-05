@@ -1,6 +1,6 @@
 import { App, FuzzySuggestModal, ItemView, MarkdownRenderer, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import type BolovanPlugin from "./main";
-import type { BolovanEvent, BolovanUiRequest } from "./bolovan-agent";
+import type { BolovanApprovalRequest, BolovanEvent } from "./bolovan-agent";
 import { Composer } from "./composer";
 import {
   buildPromptWithNotes,
@@ -71,7 +71,7 @@ export class BolovanChatView extends ItemView {
     const agent = this.plugin.agent;
     if (agent) {
       this.unsubscribeAgent = agent.subscribe((event) => this.onAgentEvent(event));
-      agent.setUiResponder((request) => this.showDialog(request));
+      agent.setApprovalResponder((request) => this.showApproval(request));
     }
 
     try {
@@ -93,12 +93,12 @@ export class BolovanChatView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    this.plugin.agent?.setUiResponder(undefined);
+    this.plugin.agent?.setApprovalResponder(undefined);
     this.unsubscribeAgent?.();
     this.unsubscribeAgent = undefined;
     this.unsubscribeTranscript?.();
     this.unsubscribeTranscript = undefined;
-    this.plugin.stopAgent();
+    void this.plugin.agent?.cancel();
   }
 
   /** External entry point for plugin commands (e.g. summarize active note). */
@@ -347,10 +347,6 @@ export class BolovanChatView extends ItemView {
   // ----- agent events ------------------------------------------------------
 
   private onAgentEvent(event: BolovanEvent): void {
-    // Dialog requests travel through the ui responder, not the transcript.
-    if (event.type === "ui-request") {
-      return;
-    }
 
     if (event.type === "settled") {
       this.transcript.apply(event);
@@ -578,14 +574,14 @@ export class BolovanChatView extends ItemView {
     await this.send();
   }
 
-  /** Harness dialog surface: exact change approvals and future prompts. */
-  private showDialog(request: BolovanUiRequest): void {
+  /** Exact-change approval surface for the harness. */
+  private showApproval(request: BolovanApprovalRequest): void {
     const agent = this.plugin.agent;
     if (!agent) {
       return;
     }
-    new BolovanDialogModal(this.app, request, (payload) => {
-      agent.respondUi(request.id, payload);
+    new BolovanApprovalModal(this.app, request, (approved) => {
+      agent.respondApproval(request.id, approved);
     }).open();
   }
 
@@ -735,83 +731,37 @@ class NoteAttachModal extends FuzzySuggestModal<TFile> {
   }
 }
 
-/**
- * Obsidian dialog for harness requests. Esc or close counts as cancellation.
- */
-class BolovanDialogModal extends Modal {
+/** Obsidian dialog for an exact change approval. */
+class BolovanApprovalModal extends Modal {
   constructor(
-    app: any,
-    private readonly request: BolovanUiRequest,
-    private readonly respond: (payload: Record<string, unknown>) => void,
+    app: App,
+    private readonly request: BolovanApprovalRequest,
+    private readonly respond: (approved: boolean) => void,
   ) {
     super(app);
   }
 
   onOpen(): void {
-    this.titleEl.setText(this.request.title ?? "Bolovan");
-
-    if (this.request.message) {
-      this.contentEl.createEl("pre", {
-        cls: "bolovan-dialog__message",
-        text: this.request.message,
-      });
-    }
-
-    if (this.request.method === "confirm") {
-      this.buildConfirm();
-    } else if (this.request.method === "select") {
-      this.buildSelect();
-    } else {
-      this.buildTextInput();
-    }
-  }
-
-  onClose(): void {
-    // The modal can close after a button already answered; settled request
-    // ids are ignored by the harness.
-    this.respond({ cancelled: true });
-  }
-
-  private answer(payload: Record<string, unknown>): void {
-    this.respond(payload);
-    this.close();
-  }
-
-  private buildConfirm(): void {
-    const actions = this.contentEl.createDiv({ cls: "bolovan-dialog__actions" });
-    const reject = actions.createEl("button", { text: "Reject" });
-    reject.addEventListener("click", () => this.answer({ confirmed: false }));
-    const approve = actions.createEl("button", { cls: "mod-cta", text: "Approve" });
-    approve.addEventListener("click", () => this.answer({ confirmed: true }));
-    reject.focus();
-  }
-
-  private buildSelect(): void {
-    const select = this.contentEl.createEl("select");
-    for (const option of this.request.options ?? []) {
-      select.createEl("option", { value: option, text: option });
-    }
-
-    const actions = this.contentEl.createDiv({ cls: "bolovan-dialog__actions" });
-    const cancel = actions.createEl("button", { text: "Cancel" });
-    cancel.addEventListener("click", () => this.answer({ cancelled: true }));
-    const ok = actions.createEl("button", { cls: "mod-cta", text: "OK" });
-    ok.addEventListener("click", () => this.answer({ value: select.value }));
-    ok.focus();
-  }
-
-  private buildTextInput(): void {
-    const textarea = this.contentEl.createEl("textarea", {
-      cls: "bolovan-dialog__text",
-      attr: { placeholder: this.request.placeholder ?? "" },
-      text: this.request.prefill ?? "",
+    this.titleEl.setText(this.request.title);
+    this.contentEl.createEl("pre", {
+      cls: "bolovan-dialog__message",
+      text: this.request.message,
     });
 
     const actions = this.contentEl.createDiv({ cls: "bolovan-dialog__actions" });
-    const cancel = actions.createEl("button", { text: "Cancel" });
-    cancel.addEventListener("click", () => this.answer({ cancelled: true }));
-    const ok = actions.createEl("button", { cls: "mod-cta", text: "OK" });
-    ok.addEventListener("click", () => this.answer({ value: textarea.value }));
-    textarea.focus();
+    const reject = actions.createEl("button", { text: "Reject" });
+    reject.addEventListener("click", () => this.answer(false));
+    const approve = actions.createEl("button", { cls: "mod-cta", text: "Approve" });
+    approve.addEventListener("click", () => this.answer(true));
+    reject.focus();
+  }
+
+  onClose(): void {
+    this.respond(false);
+  }
+
+  private answer(approved: boolean): void {
+    this.respond(approved);
+    this.close();
   }
 }
