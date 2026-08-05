@@ -48,6 +48,44 @@ export function createModelAdapter(
   return new OpenAiCompatibleAdapter(config, requestTransport);
 }
 
+/** Lists model ids from the endpoint's /models route, sorted alphabetically. */
+export async function fetchModelList(
+  config: { baseUrl?: string; apiKey?: string },
+  requestTransport: RequestTransport,
+): Promise<string[]> {
+  const baseUrl = (config.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+  const headers: Record<string, string> = {};
+  if (config.apiKey) {
+    headers.Authorization = `Bearer ${config.apiKey}`;
+  }
+  const response = await requestTransport({
+    url: `${baseUrl}/models`,
+    method: "GET",
+    headers,
+    throw: false,
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(openAiError(response));
+  }
+  // Accepts both `{ data: [...] }` and bare-array /models responses.
+  const json: unknown = response.json;
+  const entries: unknown[] = Array.isArray(json)
+    ? json
+    : json && typeof json === "object" && "data" in json && Array.isArray(json.data)
+      ? json.data
+      : [];
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    if (entry && typeof entry === "object" && "id" in entry && typeof entry.id === "string" && entry.id) {
+      ids.add(entry.id);
+    }
+  }
+  if (!ids.size) {
+    throw new Error("The endpoint returned no models");
+  }
+  return [...ids].sort();
+}
+
 class OpenAiCompatibleAdapter implements ModelAdapter {
   constructor(
     private readonly config: ProviderConfig,

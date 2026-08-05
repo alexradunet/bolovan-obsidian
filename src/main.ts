@@ -10,7 +10,7 @@ import {
 } from "obsidian";
 import { BOLOVAN_CHAT_VIEW, BolovanChatView } from "./chat-view";
 import { BolovanAgent } from "./bolovan-agent";
-import type { ProviderConfig, ThinkingEffort } from "./model-adapter";
+import { fetchModelList, type ProviderConfig, type ThinkingEffort } from "./model-adapter";
 
 const API_KEY_SECRET = "bolovan-openai-api-key";
 const THINKING_LEVELS: ReadonlyArray<{ id: ThinkingEffort; name: string }> = [
@@ -30,6 +30,7 @@ interface BolovanSettings {
   deviceId: string;
   activeBranch?: string;
   includeActiveNote: boolean;
+  modelList: string[];
 }
 
 const DEFAULT_SETTINGS: BolovanSettings = {
@@ -39,6 +40,7 @@ const DEFAULT_SETTINGS: BolovanSettings = {
   brainFolder: "system/Bolovan",
   deviceId: "",
   includeActiveNote: true,
+  modelList: [],
 };
 
 export default class BolovanPlugin extends Plugin {
@@ -216,6 +218,15 @@ export default class BolovanPlugin extends Plugin {
     };
   }
 
+  /** Queries the endpoint's /models route and persists the result. */
+  async refreshModelList(): Promise<string[]> {
+    const config = this.providerConfig();
+    const models = await fetchModelList(config, (request) => requestUrl(request));
+    this.bolovanSettings.modelList = models;
+    await this.saveSettings();
+    return models;
+  }
+
   private noteStillOpen(note: TFile): boolean {
     return this.app.workspace
       .getLeavesOfType("markdown")
@@ -329,8 +340,33 @@ class BolovanSettingTab extends PluginSettingTab {
       },
       {
         name: "Model",
-        desc: "Model ID exposed by the endpoint.",
-        control: { type: "text", key: "model", placeholder: "model-name" },
+        desc: "Query the endpoint to list its models, or type a model ID.",
+        render: (setting) => {
+          const savedModel = this.plugin.config.model;
+          const models = this.plugin.config.modelList;
+          if (models.length) {
+            setting.addDropdown((dropdown) => {
+              for (const model of models) {
+                dropdown.addOption(model, model);
+              }
+              if (savedModel && !models.includes(savedModel)) {
+                dropdown.addOption(savedModel, `${savedModel} (saved)`);
+              }
+              dropdown.setValue(savedModel);
+              dropdown.onChange((value) => void this.plugin.setModel(value));
+            });
+          } else {
+            setting.addText((text) => {
+              text.setPlaceholder("model-name");
+              text.setValue(savedModel);
+              text.onChange((value) => void this.plugin.setModel(value));
+            });
+          }
+          setting.addExtraButton((button) => button
+            .setIcon("refresh-cw")
+            .setTooltip("Query the endpoint for available models")
+            .onClick(() => void this.refreshModels()));
+        },
       },
       {
         name: "Thinking effort",
@@ -353,6 +389,17 @@ class BolovanSettingTab extends PluginSettingTab {
       },
     ];
   }
+
+  private async refreshModels(): Promise<void> {
+    try {
+      const models = await this.plugin.refreshModelList();
+      new Notice(`Bolovan found ${models.length} models`);
+    } catch (error) {
+      new Notice(`Bolovan model query failed: ${describeError(error)}`);
+    }
+    this.update();
+  }
+
 }
 
 
@@ -369,12 +416,26 @@ function knownSettings(loaded: Partial<BolovanSettings> | undefined): Partial<Bo
     return {};
   }
   const result: Partial<BolovanSettings> = {};
-  for (const key of ["model", "thinkingEffort", "baseUrl", "brainFolder", "deviceId", "activeBranch", "includeActiveNote"] as const) {
-    if (loaded[key] !== undefined) {
-      (result as any)[key] = loaded[key];
-    }
-  }
+  copyKnownKey(result, loaded, "model");
+  copyKnownKey(result, loaded, "thinkingEffort");
+  copyKnownKey(result, loaded, "baseUrl");
+  copyKnownKey(result, loaded, "brainFolder");
+  copyKnownKey(result, loaded, "deviceId");
+  copyKnownKey(result, loaded, "activeBranch");
+  copyKnownKey(result, loaded, "includeActiveNote");
+  copyKnownKey(result, loaded, "modelList");
   return result;
+}
+
+function copyKnownKey<K extends keyof BolovanSettings>(
+  result: Partial<BolovanSettings>,
+  loaded: Partial<BolovanSettings>,
+  key: K,
+): void {
+  const value = loaded[key];
+  if (value !== undefined) {
+    result[key] = value;
+  }
 }
 
 function describeError(error: unknown): string {
