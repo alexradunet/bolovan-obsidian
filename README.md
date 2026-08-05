@@ -8,7 +8,9 @@ Bolovan talks to one OpenAI-compatible endpoint. Configure the base URL, model n
 
 ## Vault capabilities
 
-The harness exposes four vault tools: read a file, search notes, list a folder, and change a file. Every change displays the exact resulting content or move for approval. The commit then rechecks the note's SHA-256; if it changed after preview, nothing is written. The agent can read and list its own plugin source under `.obsidian/plugins/bolovan`, but every write under `.obsidian` stays refused.
+The harness exposes bounded vault reads, structured search, folder listing, metadata and structured-file inspection, exact approved changes, workspace navigation, and bounded web reads. Every vault change displays the exact resulting content or move for approval. The commit then rechecks the source SHA-256; if it changed after preview, nothing is written. The agent can read and list its own plugin source under `.obsidian/plugins/bolovan`, but every write under `.obsidian` stays refused.
+
+Canvas (`.canvas`) and Bases (`.base`) files are first-class text formats. Bolovan can discover them, paginate exact source, inspect their parsed structure, create or patch them, and open them in Obsidian. Proposed Canvas JSON and Bases YAML must pass format-aware validation before an approval preview appears. For a one-off note filter Bolovan uses its cancellable vault search without changing a Base; Obsidian's exact Bases formula evaluation remains available by saving and opening a user-approved Base rather than through an undocumented background query interface.
 
 The default brain folder is `system/Bolovan` and can be changed in settings. A manifest lets another device auto-discover it. Instructions, skills, and device-owned conversation branches sync as ordinary vault files. Concurrent branches are preserved and never automatically merged.
 

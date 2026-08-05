@@ -23,6 +23,16 @@ file lifecycle operations. `workspace` provides active-editor context and
 user-requested navigation without replacing Bolovan's chat leaf. New
 capabilities deepen these interfaces before adding another model-facing tool.
 
+Canvas and Bases stay behind the same vault interface. Exact source reads can
+paginate single-line files; inspection parses bounded `.canvas` JSON and
+`.base` YAML; search discovers either format; and changes validate the full
+result before approval. Unknown structured keys remain source-preserved.
+Obsidian exposes Bases query results to registered views but no standalone
+public query function, so transient prompt filters use `vault_search`.
+Bolovan does not mutate a Base temporarily or duplicate Obsidian's expression
+engine; exact formula evaluation requires a saved, user-approved Base opened
+in Obsidian.
+
 There are no process, shell, raw-filesystem, or Node runtime dependencies, and no on-device model runtime: the model is always a remote endpoint.
 
 Every content or vault-structure mutation is a two-phase operation. The adapter prepares and displays the exact resulting content or operation, the user approves it, and the commit rechecks the source SHA-256 or current state. A stale approval writes nothing.
@@ -35,3 +45,4 @@ Portable configuration lives in a visible, configurable brain folder identified 
 - Provider behavior and tool semantics are product code and can be tested independently.
 - Remote calls use completed-response rendering as the portable guarantee. Streaming can be added as a provider-specific enhancement later.
 - `web_search`, self-modifying plugin code, arbitrary shell access, and external brain folders are outside this milestone.
+- Canvas and Bases remain portable visible vault files, with format validation before approval and Obsidian as the authority for Bases expression evaluation.

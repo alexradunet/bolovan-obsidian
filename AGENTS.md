@@ -62,8 +62,9 @@ working on the plugin.
 - `src/bolovan-agent.ts` — harness orchestration and tool loop
 - `src/model-adapter.ts` — the OpenAI-compatible model adapter
 - `src/brain-store.ts` — portable brain and conversation persistence
-- `src/vault-tools.ts` — bounded vault discovery and approval-gated changes
-- `src/workspace-tools.ts` — active-editor context and safe note navigation
+- `src/vault-tools.ts` — bounded Markdown/Canvas/Bases discovery, inspection, and approval-gated changes
+- `src/structured-files.ts` — Canvas and Bases parsing, bounded inspection, and validation
+- `src/workspace-tools.ts` — active-editor context and safe vault-file navigation
 - `src/chat-view.ts`, `src/composer.ts`, `src/context.ts` — user interface and note attachments
 - `src/transcript.ts` — portable transcript semantics
 - `tests/` — unit, integration, and built-plugin smoke tests
@@ -241,6 +242,12 @@ These are requirements, not suggestions:
 - Vault behavior uses Obsidian `Vault`, `MetadataCache`, and `FileManager` APIs.
   Hidden configuration capabilities use the mobile-safe `Vault.adapter` only
   through `Vault.configDir` and explicit path-bounded actions.
+- Canvas and Bases remain visible vault files behind the existing vault tools.
+  Preserve unknown structured keys and validate the complete resulting
+  `.canvas` JSON or `.base` YAML before approval. Obsidian owns Bases formula
+  evaluation; without a public standalone query interface, use `vault_search`
+  for supported transient filters instead of a parallel evaluator or a
+  temporary Base mutation.
 - Every model-initiated change to user-authored content, vault structure, or
   Obsidian configuration requires an exact preview and explicit approval. The
   commit rechecks stale state; stale approvals write nothing.
@@ -275,7 +282,7 @@ These are requirements, not suggestions:
 ## Verification
 
 - Test provider normalization, tool-loop stopping, cancellation, exact approvals, stale-write rejection, and device-branch forking through module interfaces.
-- Test bounded reads, metadata discovery, cancellable scans, workspace navigation that preserves the chat leaf, and native copy/trash through module interfaces.
+- Test bounded and paginated reads, Markdown/Canvas/Bases inspection, structured-file validation, cancellable scans, workspace navigation that preserves the chat leaf, and native copy/trash through module interfaces.
 - Transcript semantics live in `src/transcript.ts` and are tested without an Obsidian runtime.
 - Integration tests use synthetic in-memory adapters and never a personal vault, credential, or provider account.
 - Release smoke tests cover the minimum supported Obsidian version, current

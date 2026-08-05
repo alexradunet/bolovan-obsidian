@@ -8,6 +8,7 @@ import {
   type CachedMetadata,
 } from "obsidian";
 import type { ToolDefinition } from "./model-adapter";
+import { inspectStructuredFile, validateStructuredFile } from "./structured-files";
 
 const MAX_READ_CHARS = 40_000;
 const MAX_INSPECT_ITEMS = 100;
@@ -26,19 +27,21 @@ export interface ChangePreview {
 export const VAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "vault_read",
-    description: "Read bounded content from one text file in the Obsidian vault. Optionally select line numbers or an Obsidian heading/block subpath.",
+    description: "Read bounded exact source from a Markdown, Canvas, Bases, or other text file. Select line numbers, a character offset, or a Markdown subpath.",
     parameters: objectSchema({
       path: { type: "string", description: "Vault-relative file path" },
-      subpath: { type: "string", description: "Optional Obsidian subpath beginning with #, such as #Heading or #^block-id" },
+      subpath: { type: "string", description: "Optional Markdown subpath beginning with #, such as #Heading or #^block-id" },
       start_line: { type: "integer", minimum: 1, description: "Optional 1-based first line" },
       end_line: { type: "integer", minimum: 1, description: "Optional 1-based inclusive last line" },
+      start_char: { type: "integer", minimum: 0, description: "Optional 0-based character offset for paginating long or single-line files" },
     }, ["path"]),
   },
   {
     name: "vault_search",
-    description: "Search Markdown paths or contents and filter by Obsidian metadata. Filters are combined, and results are capped.",
+    description: "Search Markdown, Canvas, or Bases paths and contents. Obsidian metadata filters apply only to Markdown. Filters are combined and results are capped.",
     parameters: objectSchema({
       query: { type: "string", description: "Case-insensitive path/content substring" },
+      extension: { type: "string", enum: ["md", "canvas", "base"], description: "File extension to search; defaults to md" },
       folder: { type: "string", description: "Limit results to this vault folder" },
       tag: { type: "string", description: "Require this Obsidian tag" },
       property: { type: "string", description: "Require this frontmatter property" },
@@ -62,12 +65,12 @@ export const VAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "vault_inspect",
-    description: "Inspect one vault file using Obsidian metadata: properties, headings, blocks, tags, links, backlinks, embeds, and tasks.",
-    parameters: objectSchema({ path: { type: "string", description: "Vault-relative file path" } }, ["path"]),
+    description: "Inspect one vault file. Returns native Markdown metadata or validated, bounded Canvas/Bases structure.",
+    parameters: objectSchema({ path: { type: "string", description: "Vault-relative Markdown, Canvas, or Bases file path" } }, ["path"]),
   },
   {
     name: "vault_change",
-    description: "Create, replace, patch, append, copy, move, archive, or trash a vault file. Every call requires user approval of an exact preview.",
+    description: "Create, replace, patch, append, copy, move, archive, or trash a vault file. Canvas JSON and Bases YAML are validated before every exact approval preview.",
     parameters: objectSchema({
       action: { type: "string", enum: ["create", "replace", "patch", "append", "copy", "move", "archive", "trash"] },
       path: { type: "string", description: "Current or new vault-relative file path" },
@@ -118,8 +121,12 @@ export class VaultTools {
     const subpath = optionalArgumentString(args, "subpath");
     const startLine = optionalInteger(args, "start_line", 1);
     const endLine = optionalInteger(args, "end_line", 1);
-    if (subpath && (startLine !== undefined || endLine !== undefined)) {
-      throw new Error("vault_read accepts either subpath or line bounds, not both");
+    const startChar = optionalInteger(args, "start_char", 0);
+    if (subpath && (startLine !== undefined || endLine !== undefined || startChar !== undefined)) {
+      throw new Error("vault_read accepts one selector: subpath, line bounds, or start_char");
+    }
+    if (startChar !== undefined && (startLine !== undefined || endLine !== undefined)) {
+      throw new Error("vault_read accepts either line bounds or start_char, not both");
     }
     if (endLine !== undefined && startLine !== undefined && endLine < startLine) {
       throw new Error("end_line must be greater than or equal to start_line");
@@ -147,7 +154,7 @@ export class VaultTools {
     }
     throwIfAborted(signal);
 
-    const selection = this.selectReadContent(content, file, subpath, startLine, endLine);
+    const selection = this.selectReadContent(content, file, subpath, startLine, endLine, startChar);
     const truncated = selection.content.length > MAX_READ_CHARS;
     return {
       content: JSON.stringify({
@@ -167,6 +174,7 @@ export class VaultTools {
     subpath: string,
     startLine: number | undefined,
     endLine: number | undefined,
+    startChar: number | undefined,
   ): { content: string; details: Record<string, unknown> } {
     if (subpath) {
       if (!subpath.startsWith("#")) {
@@ -192,6 +200,22 @@ export class VaultTools {
         },
       };
     }
+    if (startChar !== undefined) {
+      if (startChar > content.length) {
+        throw new Error(`start_char ${startChar} is past the end of the file (${content.length} characters)`);
+      }
+      const remaining = content.slice(startChar);
+      const endChar = startChar + Math.min(remaining.length, MAX_READ_CHARS);
+      return {
+        content: remaining,
+        details: {
+          range: { startChar, endChar },
+          sourceChars: content.length,
+          nextStartChar: endChar < content.length ? endChar : undefined,
+        },
+      };
+    }
+
 
     if (startLine !== undefined || endLine !== undefined) {
       const lines = content.split("\n");
@@ -211,6 +235,8 @@ export class VaultTools {
 
   private async search(args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
     const query = optionalArgumentString(args, "query").trim();
+    const extensionArg = optionalArgumentString(args, "extension").trim().toLocaleLowerCase();
+    const extension = extensionArg || "md";
     const folderArg = optionalArgumentString(args, "folder").trim();
     const folder = folderArg ? safePath(folderArg) : "";
     const tagArg = optionalArgumentString(args, "tag").trim();
@@ -224,23 +250,33 @@ export class VaultTools {
     const modifiedBefore = optionalInteger(args, "modified_before", 0);
     const limit = boundedInteger(args.limit, 20, 1, 50, "limit");
 
+    if (!["md", "canvas", "base"].includes(extension)) {
+      throw new Error(`Unsupported search extension: ${extension}`);
+    }
+
     if (propertyValue && !property) {
       throw new Error("property_value requires property");
     }
     if (taskStatus && !["any", "incomplete", "complete"].includes(taskStatus)) {
       throw new Error(`Unsupported task_status: ${taskStatus}`);
     }
-    if (!query && !folder && !tag && !property && !linkedTo && !taskStatus
+    const needsMetadata = Boolean(tag || property || linkedTo || taskStatus);
+    if (needsMetadata && extension !== "md") {
+      throw new Error("Tag, property, link, and task filters are available only when extension is md");
+    }
+    if (!query && !extensionArg && !folder && !tag && !property && !linkedTo && !taskStatus
       && modifiedAfter === undefined && modifiedBefore === undefined) {
       throw new Error("vault_search requires at least one search term or filter");
     }
 
     const wanted = query.toLocaleLowerCase();
-    const needsMetadata = Boolean(tag || property || linkedTo || taskStatus);
+    const files = extension === "md"
+      ? this.app.vault.getMarkdownFiles()
+      : this.app.vault.getFiles().filter((file) => file.extension.toLocaleLowerCase() === extension);
     const results: Array<{ path: string; matches: string[]; reasons: string[] }> = [];
     let metadataPending = 0;
 
-    for (const file of this.app.vault.getMarkdownFiles()) {
+    for (const file of files) {
       throwIfAborted(signal);
       if (results.length >= limit) {
         break;
@@ -302,8 +338,11 @@ export class VaultTools {
         const content = await this.app.vault.cachedRead(file);
         throwIfAborted(signal);
         for (const [index, line] of content.split("\n").entries()) {
-          if (line.toLocaleLowerCase().includes(wanted)) {
-            matches.push(`${index + 1}: ${line.slice(0, 300)}`);
+          const found = line.toLocaleLowerCase().indexOf(wanted);
+          if (found >= 0) {
+            const start = Math.max(0, found - 100);
+            const prefix = start > 0 ? "…" : "";
+            matches.push(`${index + 1}: ${prefix}${line.slice(start, start + 300)}`);
             if (matches.length >= 3) {
               break;
             }
@@ -323,6 +362,7 @@ export class VaultTools {
       content: JSON.stringify({
         query: query || undefined,
         filters: {
+          extension,
           folder: folder || undefined,
           tag: tag || undefined,
           property: property || undefined,
@@ -439,6 +479,16 @@ export class VaultTools {
     }
     const content = await this.app.vault.cachedRead(file);
     throwIfAborted(signal);
+    const common = {
+      path,
+      hash: await sha256(content),
+      stats: file.stat ? { size: file.stat.size, ctime: file.stat.ctime, mtime: file.stat.mtime } : undefined,
+    };
+    const structured = inspectStructuredFile(path, content);
+    if (structured) {
+      return { content: JSON.stringify({ ...common, ...structured }) };
+    }
+
     const cache = this.app.metadataCache.getFileCache(file);
     const contentLines = content.split("\n");
 
@@ -470,9 +520,7 @@ export class VaultTools {
 
     return {
       content: JSON.stringify({
-        path,
-        hash: await sha256(content),
-        stats: file.stat ? { size: file.stat.size, ctime: file.stat.ctime, mtime: file.stat.mtime } : undefined,
+        ...common,
         metadataPending: file.extension === "md" && !cache,
         properties: frontmatterProperties(cache?.frontmatter),
         headings: cap((cache?.headings ?? []).map((heading) => ({
@@ -512,6 +560,7 @@ export class VaultTools {
         throw new Error(`A vault item already exists at ${path}`);
       }
       const content = requireString(args, "content", true);
+      validateStructuredFile(path, content);
       return {
         title: `Create ${path}`,
         message: exactPreview("create", path, undefined, content),
@@ -551,6 +600,7 @@ export class VaultTools {
         }
         after = beforeContent.replace(matched, supplied);
       }
+      validateStructuredFile(path, after);
       return {
         title: `${action.charAt(0).toUpperCase()}${action.slice(1)} ${path}`,
         message: exactPreview(action, path, beforeContent, after),
@@ -566,6 +616,7 @@ export class VaultTools {
       if (this.app.vault.getAbstractFileByPath(destination)) {
         throw new Error(`A vault item already exists at ${destination}`);
       }
+      validateStructuredFile(destination, beforeContent);
       return {
         title: `${action.charAt(0).toUpperCase()}${action.slice(1)} ${path}`,
         message: `Exact approved operation\n\n${action.toUpperCase()}\n${path}\n→ ${destination}\n\nSource SHA-256: ${actualHash}`,
@@ -687,6 +738,7 @@ function exactPreview(action: string, path: string, before: string | undefined, 
     "---",
   ].join("\n");
 }
+
 
 function safePath(value: string): string {
   const normalized = normalizePath(value.trim().replace(/^\/+/, ""));

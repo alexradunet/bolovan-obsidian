@@ -1,6 +1,10 @@
 export function normalizePath(value: string): string {
   return value.replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^\.\//, "");
 }
+export function parseYaml(value: string): unknown {
+  return JSON.parse(value);
+}
+
 
 export class TFile {}
 export class TFolder {}

@@ -22,6 +22,7 @@ Module._load = function loadWithObsidianStub(request, parent, isMain) {
       setIcon: () => undefined,
       MarkdownRenderer: { render: async () => undefined },
       normalizePath: (value) => value,
+      parseYaml: (value) => JSON.parse(value),
     };
   }
 

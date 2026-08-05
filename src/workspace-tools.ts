@@ -6,13 +6,13 @@ const MAX_SELECTION_CHARS = 40_000;
 
 export const WORKSPACE_TOOL_DEFINITION: ToolDefinition = {
   name: "workspace",
-  description: "Read the active Markdown editor context or open a vault note when the user asks to navigate. Opening never replaces Bolovan's chat view.",
+  description: "Read the active Markdown editor context or open a visible vault file when the user asks to navigate. Opening never replaces Bolovan's chat view.",
   parameters: {
     type: "object",
     additionalProperties: false,
     properties: {
       action: { type: "string", enum: ["context", "open"] },
-      path: { type: "string", description: "Vault-relative note path required for open" },
+      path: { type: "string", description: "Vault-relative file path required for open" },
       subpath: { type: "string", description: "Optional heading or block subpath beginning with #" },
       pane: { type: "string", enum: ["current", "tab", "split"], description: "Where to open; defaults to current Markdown pane or a safe new tab" },
     },

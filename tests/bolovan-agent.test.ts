@@ -142,7 +142,7 @@ describe("BolovanAgent tool loop", () => {
 });
 
 describe("BolovanAgent response format", () => {
-  it("tells the model how to embed web and vault images", async () => {
+  it("provides image, Canvas, and Bases workflows", async () => {
     let systemPrompt = "";
     let toolNames: string[] = [];
     const transport: RequestTransport = async (request) => {
@@ -173,7 +173,11 @@ describe("BolovanAgent response format", () => {
     expect(systemPrompt).toContain("![alt](URL)");
     expect(systemPrompt).toContain("![[vault/path.png]]");
     expect(systemPrompt).toContain("Prefer vault_change patch");
-    expect(systemPrompt).toContain("Open a note only when the user asks to navigate");
+    expect(systemPrompt).toContain("Open a vault file only when the user asks to navigate");
+    expect(systemPrompt).toContain("Groups contain nodes by geometry");
+    expect(systemPrompt).toContain("global and view filters combine with AND");
+    expect(systemPrompt).toContain("For a one-off prompt filter, use vault_search without changing a Base");
+    expect(systemPrompt).toContain("vault_search does not evaluate Bases formulas");
     expect(toolNames).toEqual(expect.arrayContaining(["vault_inspect", "workspace"]));
   });
 });

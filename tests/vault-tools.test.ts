@@ -198,6 +198,108 @@ describe("VaultTools reads and discovery", () => {
     });
     expect(payload.hash).toMatch(/^[a-f0-9]{64}$/);
   });
+  it("paginates exact source in long single-line structured files", async () => {
+    const content = `${"x".repeat(40_005)}target`;
+    const tools = new VaultTools(fakeApp({ "Board.canvas": content }));
+
+    const first = JSON.parse(contentOf(await tools.execute("vault_read", {
+      path: "Board.canvas",
+      start_char: 0,
+    })));
+    const second = JSON.parse(contentOf(await tools.execute("vault_read", {
+      path: "Board.canvas",
+      start_char: first.nextStartChar,
+    })));
+
+    expect(first).toMatchObject({
+      range: { startChar: 0, endChar: 40_000 },
+      sourceChars: 40_011,
+      nextStartChar: 40_000,
+      truncated: true,
+    });
+    expect(second).toMatchObject({
+      range: { startChar: 40_000, endChar: 40_011 },
+      content: "xxxxxtarget",
+      truncated: false,
+    });
+  });
+
+  it("discovers and searches Canvas and Bases source separately from Markdown", async () => {
+    const app = fakeApp({
+      "Board.canvas": `${"x".repeat(500)}needle`,
+      "Dashboard.base": "{\"views\":[]}",
+      "Note.md": "needle",
+    });
+    const tools = new VaultTools(app);
+
+    const canvas = JSON.parse(contentOf(await tools.execute("vault_search", {
+      extension: "canvas",
+      query: "needle",
+    })));
+    const bases = JSON.parse(contentOf(await tools.execute("vault_search", {
+      extension: "base",
+    })));
+
+    expect(canvas.results).toEqual([expect.objectContaining({
+      path: "Board.canvas",
+      matches: [expect.stringContaining("needle")],
+    })]);
+    expect(bases.results).toEqual([{ path: "Dashboard.base", matches: [], reasons: [] }]);
+  });
+
+  it("inspects validated Canvas structure while preserving unknown keys", async () => {
+    const content = JSON.stringify({
+      nodes: [
+        { id: "group", type: "group", x: 0, y: 0, width: 800, height: 600, future: true },
+        { id: "note", type: "file", file: "Note.md", subpath: "#Plan", x: 50, y: 50, width: 300, height: 200 },
+      ],
+      edges: [
+        { id: "edge", fromNode: "group", toNode: "note", fromSide: "right", toEnd: "arrow", future: "kept" },
+      ],
+      futureRoot: { version: 2 },
+    });
+    const tools = new VaultTools(fakeApp({ "Board.canvas": content }));
+
+    const result = JSON.parse(contentOf(await tools.execute("vault_inspect", { path: "Board.canvas" })));
+
+    expect(result).toMatchObject({
+      format: "canvas",
+      nodeCount: 2,
+      edgeCount: 1,
+      nodes: [
+        { index: 0, id: "group", type: "group", future: true },
+        { index: 1, id: "note", type: "file", file: "Note.md", subpath: "#Plan" },
+      ],
+      edges: [{ index: 0, id: "edge", fromNode: "group", toNode: "note", future: "kept" }],
+      truncated: false,
+    });
+  });
+
+  it("inspects Bases configuration without claiming formula evaluation", async () => {
+    const content = JSON.stringify({
+      filters: { and: ["file.ext == \"md\"", { not: ["status == \"done\""] }] },
+      formulas: { recent: "file.mtime > now() - \"1 week\"" },
+      properties: { status: { displayName: "Status", future: true } },
+      views: [{ type: "table", name: "Active", order: ["file.name"], future: { density: "compact" } }],
+      futureRoot: true,
+    });
+    const tools = new VaultTools(fakeApp({ "Dashboard.base": content }));
+
+    const result = JSON.parse(contentOf(await tools.execute("vault_inspect", { path: "Dashboard.base" })));
+
+    expect(result).toMatchObject({
+      format: "base",
+      expressionsEvaluated: false,
+      config: {
+        formulas: { recent: "file.mtime > now() - \"1 week\"" },
+        properties: { status: { displayName: "Status", future: true } },
+        views: [{ type: "table", name: "Active", future: { density: "compact" } }],
+        futureRoot: true,
+      },
+      truncated: false,
+    });
+  });
+
 });
 
 describe("VaultTools exact changes", () => {
@@ -318,4 +420,74 @@ describe("VaultTools exact changes", () => {
     });
     expect(contentOf(blocked)).toContain("does not modify Obsidian configuration");
   });
+  it("rejects malformed Canvas and Bases content before approval", async () => {
+    const tools = new VaultTools(fakeApp());
+    const danglingCanvas = JSON.stringify({
+      nodes: [{ id: "one", type: "text", text: "One", x: 0, y: 0, width: 200, height: 100 }],
+      edges: [{ id: "edge", fromNode: "one", toNode: "missing" }],
+    });
+
+    const canvas = await tools.execute("vault_change", {
+      action: "create",
+      path: "Broken.canvas",
+      content: danglingCanvas,
+    });
+    const bases = await tools.execute("vault_change", {
+      action: "create",
+      path: "Broken.base",
+      content: JSON.stringify({ filters: { maybe: ["status == \"open\""] }, views: [] }),
+    });
+
+    expect(contentOf(canvas)).toContain("references a missing node");
+    expect(contentOf(bases)).toContain("must contain one and, or, or not array");
+  });
+
+  it("validates resulting structured patches and copy destinations", async () => {
+    const baseContent = JSON.stringify({
+      filters: { and: ["status == \"open\""] },
+      views: [{ type: "table", name: "Open" }],
+    });
+    const canvasContent = JSON.stringify({
+      nodes: [{ id: "one", type: "text", text: "One", x: 0, y: 0, width: 200, height: 100 }],
+      edges: [],
+    });
+    const app = fakeApp({
+      "Dashboard.base": baseContent,
+      "Board.canvas": canvasContent,
+      "Note.md": "not canvas json",
+    });
+    const tools = new VaultTools(app);
+
+    const baseRead = JSON.parse(contentOf(await tools.execute("vault_read", { path: "Dashboard.base" })));
+    const validPatch = await tools.execute("vault_change", {
+      action: "patch",
+      path: "Dashboard.base",
+      before: "\"Open\"",
+      content: "\"Active\"",
+      expected_hash: baseRead.hash,
+    });
+    await asChangePreview(validPatch).apply();
+    expect(await app.vault.cachedRead(app.vault.getFileByPath("Dashboard.base")!)).toContain("\"Active\"");
+
+    const canvasRead = JSON.parse(contentOf(await tools.execute("vault_read", { path: "Board.canvas" })));
+    const invalidPatch = await tools.execute("vault_change", {
+      action: "patch",
+      path: "Board.canvas",
+      before: "\"id\":\"one\"",
+      content: "\"id\":\"\"",
+      expected_hash: canvasRead.hash,
+    });
+    const noteRead = JSON.parse(contentOf(await tools.execute("vault_read", { path: "Note.md" })));
+    const invalidCopy = await tools.execute("vault_change", {
+      action: "copy",
+      path: "Note.md",
+      destination: "Copied.canvas",
+      expected_hash: noteRead.hash,
+    });
+
+    expect(contentOf(invalidPatch)).toContain("must be a non-empty string");
+    expect(contentOf(invalidCopy)).toContain("Invalid Canvas JSON");
+    expect(app.vault.getFileByPath("Copied.canvas")).toBeNull();
+  });
+
 });
