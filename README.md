@@ -6,6 +6,12 @@ Bolovan is an AI agent built directly into Obsidian. Install the plugin, configu
 
 Bolovan talks to one OpenAI-compatible endpoint. Configure the base URL, model name, and an API key in Bolovan settings. The key is stored in Obsidian SecretStorage on the current device. Endpoint configuration, secrets, the device id, and the selected conversation branch are device-local. Portable agent knowledge and conversations live in the synced brain folder.
 
+## Privacy and network use
+
+Bolovan sends requests only to the OpenAI-compatible model endpoint configured by the user. Requests may include conversation history, brain instructions and skills, attached note content, and model tool calls and results. The endpoint provider's terms, privacy policy, data retention, account requirements, and pricing apply.
+
+When asked to read an HTTP or HTTPS URL, Bolovan fetches that page through Obsidian and may include the extracted text in a model request. Bolovan does not include client-side telemetry.
+
 ## Vault capabilities
 
 The harness exposes bounded vault reads, structured search, folder listing, metadata and structured-file inspection, exact approved changes, workspace navigation, and bounded web reads. Every vault change displays the exact resulting content or move for approval. The commit then rechecks the source SHA-256; if it changed after preview, nothing is written. The agent can read and list its own plugin source under `.obsidian/plugins/bolovan`, but every write under `.obsidian` stays refused.
@@ -29,3 +35,7 @@ npm run build
 ```
 
 Engineering rules live in [AGENTS.md](AGENTS.md); load-bearing decisions live in [docs/adr/](docs/adr/).
+
+## License
+
+Bolovan is available under the [MIT License](LICENSE).

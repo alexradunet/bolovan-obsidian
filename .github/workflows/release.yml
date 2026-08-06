@@ -1,0 +1,51 @@
+name: Release Obsidian plugin
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.19.0"
+          cache: npm
+
+      - name: Verify tag matches plugin version
+        run: test "$GITHUB_REF_NAME" = "$(node -p "require('./manifest.json').version")"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify and build plugin
+        run: npm test
+
+      - name: Generate artifact attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          --verify-tag
+          --title "$GITHUB_REF_NAME"
+          --generate-notes
+          --draft
+          main.js manifest.json styles.css
