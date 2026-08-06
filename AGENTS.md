@@ -71,6 +71,20 @@ working on the plugin.
 - `tests/` — unit, integration, and built-plugin smoke tests
 - `docs/adr/` — load-bearing architecture decisions
 
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked in GitHub Issues. Read `docs/agents/issue-tracker.md` before fetching, publishing, triaging, or linking tickets.
+
+### Triage labels
+
+Use the canonical triage labels configured in `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a single-context domain-doc layout. Read `docs/agents/domain.md` before domain modeling or turning plans into tracker work.
+
 ## Development workflow
 
 - Use Node.js 22.19 or newer.
