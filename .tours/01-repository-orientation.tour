@@ -57,7 +57,7 @@
       "file": "src/brain-store.ts",
       "pattern": "^export class BrainStore",
       "title": "01.09 — Meet portable memory",
-      "description": "`BrainStore` owns the visible brain folder, instructions, skills, conversations, and device-owned branches. Secrets and endpoint configuration stay outside it in device-local plugin settings. This split lets useful knowledge sync without turning credentials or approval state into shared vault data."
+      "description": "`BrainStore` owns the visible Brain folder, root `AGENTS.md`, conversations, and device-owned branches while delegating canonical package validation to the Skill module. Secrets and endpoint configuration stay outside it in device-local plugin settings. This split lets useful knowledge sync without turning credentials or approval state into shared vault data."
     },
     {
       "file": "src/chat-view.ts",

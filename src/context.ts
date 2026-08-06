@@ -14,12 +14,15 @@ export interface NoteAttachment {
 export interface NoteCandidate {
   path: string;
   basename: string;
+  kind?: "note" | "skill";
+  description?: string;
 }
 
 export const MAX_ATTACHMENTS = 10;
 export const MAX_ATTACHMENT_CHARS = 40_000;
 export interface AttachmentPreparation {
   notes: NoteAttachment[];
+  skills: string[];
   warnings: string[];
   prompt: string;
 }
@@ -28,10 +31,15 @@ export async function prepareAttachments(
   app: App,
   text: string,
   activeNote?: TFile,
+  skillCandidates: NoteCandidate[] = [],
 ): Promise<AttachmentPreparation> {
   const notes: NoteAttachment[] = [];
   const warnings: string[] = [];
   const seen = new Set<string>();
+  const skills: string[] = [];
+  const skillNames = new Set(
+    skillCandidates.filter((candidate) => candidate.kind === "skill").map((candidate) => candidate.basename),
+  );
 
   const attach = async (file: TFile): Promise<void> => {
     if (seen.has(file.path)) {
@@ -53,15 +61,21 @@ export async function prepareAttachments(
     await attach(activeNote);
   }
   for (const linkpath of parseMentionLinkpaths(text)) {
+    if (!linkpath.includes("/") && skillNames.has(linkpath)) {
+      if (!skills.includes(linkpath)) {
+        skills.push(linkpath);
+      }
+      continue;
+    }
     const file = app.metadataCache.getFirstLinkpathDest(linkpath, "");
     if (!file) {
-      warnings.push(`No note found for [[${linkpath}]] — sent without it.`);
+      warnings.push(`No note or skill found for [[${linkpath}]] — sent without it.`);
       continue;
     }
     await attach(file);
   }
 
-  return { notes, warnings, prompt: buildPromptWithNotes(text, notes) };
+  return { notes, skills, warnings, prompt: buildPromptWithNotes(text, notes) };
 }
 
 
@@ -150,13 +164,17 @@ export function mentionTokenAt(text: string, caret: number): MentionToken | unde
   return { start: openIndex, end: caret, query };
 }
 
-/** Basename when unique in the vault, full linkpath otherwise. */
+/** Skill name when selected, basename when unique, full linkpath otherwise. */
 export function mentionLabel(note: NoteCandidate, all: NoteCandidate[]): string {
+  if (note.kind === "skill") {
+    return note.basename;
+  }
   const sameName = all.filter((other) => other.basename === note.basename);
   if (sameName.length <= 1) {
     return note.basename;
   }
-  return note.path.replace(/\.md$/, "");
+  const collidesWithSkill = sameName.some((other) => other.kind === "skill");
+  return collidesWithSkill ? note.path : note.path.replace(/\.md$/i, "");
 }
 
 /**
@@ -180,7 +198,7 @@ export function matchNoteCandidates(
     const path = note.path.toLowerCase();
     let score: number;
     if (name === wanted) {
-      score = 4;
+      score = note.kind === "skill" ? 5 : 4;
     } else if (name.startsWith(wanted)) {
       score = 3;
     } else if (name.includes(wanted)) {

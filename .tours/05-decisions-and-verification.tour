@@ -54,7 +54,7 @@
       "file": "tests/model-adapter.test.ts",
       "pattern": "^describe\\(\"OpenAI-compatible model adapter\"",
       "title": "05.09 — Test seams by their observable contract",
-      "description": "The adapter suite asserts requests, authorization, optional thinking effort, normalized replies, tool calls, usage, model lists, and provider failures without depending on private helpers. The same style appears across VaultTools, BrainStore, Transcript, workspace, context, and Harness tests."
+      "description": "The adapter suite asserts requests, authorization, optional thinking effort, normalized replies, tool calls, usage, model lists, and provider failures without depending on private helpers. The same interface-first style covers VaultTools, BrainStore, Agent Skills, Transcript, workspace, context, and the Harness."
     },
     {
       "file": "AGENTS.md",

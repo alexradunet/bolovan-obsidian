@@ -486,7 +486,10 @@ class MentionPicker {
       const item = this.el.createDiv({ cls: "bolovan-chat__picker-item" });
       item.toggleClass("is-selected", index === this.selectedIndex);
       item.createSpan({ cls: "bolovan-chat__picker-name", text: note.basename });
-      item.createSpan({ cls: "bolovan-chat__picker-path", text: folderOf(note.path) });
+      const detail = note.kind === "skill"
+        ? `Skill · ${note.description ?? ""}`
+        : folderOf(note.path);
+      item.createSpan({ cls: "bolovan-chat__picker-path", text: detail });
       item.addEventListener("mouseenter", () => {
         this.selectedIndex = index;
         this.paintSelection();

@@ -48,4 +48,38 @@ describe("ModelTools", () => {
     await expect(tools.execute("workspace", { action: "context" }, controller.signal))
       .rejects.toMatchObject({ name: "AbortError" });
   });
+
+  it("activates skills and reads resources through the bounded tool interface", async () => {
+    const tools = new ModelTools(
+      fakeApp(),
+      async () => {
+        throw new Error("unused");
+      },
+      {
+        activateSkill: async (name) => ({
+          name,
+          description: "Review work",
+          instructions: "Check observed behavior.",
+          resources: ["references/checklist.md"],
+        }),
+        readSkillResource: async (_name, path) => `resource:${path}`,
+      },
+    );
+    const signal = new AbortController().signal;
+
+    expect(tools.definitions.map((definition) => definition.name)).toContain("skill_read");
+    await expect(tools.execute("skill_read", {
+      action: "activate",
+      name: "code-review",
+    }, signal)).resolves.toMatchObject({
+      content: expect.stringContaining("Check observed behavior."),
+    });
+    await expect(tools.execute("skill_read", {
+      action: "resource",
+      name: "code-review",
+      path: "references/checklist.md",
+    }, signal)).resolves.toMatchObject({
+      content: expect.stringContaining("resource:references/checklist.md"),
+    });
+  });
 });

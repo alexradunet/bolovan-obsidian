@@ -13,7 +13,7 @@
       "file": "src/context.ts",
       "pattern": "^export async function prepareAttachments",
       "title": "02.02 — Mentions become bounded context",
-      "description": "The optional active note and typed `[[wikilink]]` mentions are resolved through Obsidian metadata. Count and character limits are applied here, producing warnings, display metadata, and the exact prompt that will travel to the model. DOM editing remains behind us; this is attachment policy."
+      "description": "The optional active note and typed `[[wikilink]]` mentions are resolved through Obsidian metadata. Valid bare Skill names become explicit activations; ordinary notes remain bounded attachments. Count and character limits produce warnings, display metadata, and the exact prompt that will travel to the model."
     },
     {
       "file": "src/transcript.ts",
@@ -23,7 +23,7 @@
     },
     {
       "file": "src/bolovan-agent.ts",
-      "pattern": "async ask\\(prompt: string\\): Promise<void>",
+      "pattern": "async ask\\(",
       "title": "02.04 — The Harness opens one Run",
       "description": "`ask` refuses a second active Run, initializes the Brain, snapshots provider configuration once, and installs a fresh `AbortController`. It records a model-change marker when needed, persists the user prompt, and guarantees that its `activeRun` slot is cleared when the journey ends."
     },
@@ -37,7 +37,7 @@
       "file": "src/bolovan-agent.ts",
       "pattern": "const messages: ModelMessage\\[\\] = \\[",
       "title": "02.06 — Each round rebuilds its instructions",
-      "description": "Inside `runLoop`, the Harness reloads the Brain's current instructions and skills, builds a system message, and follows it with persisted conversation history. A skill approved during one round can therefore influence the next round without becoming hidden runtime state."
+      "description": "Inside `runLoop`, the Harness reloads root Brain `AGENTS.md` and the validated Skill metadata catalog. Only an explicitly mentioned Skill enters the first system prompt; implicit Skills load later through `skill_read`. General policy, selected procedures, and persisted history remain distinct prompt layers."
     },
     {
       "file": "src/model-adapter.ts",
@@ -83,7 +83,7 @@
     },
     {
       "file": "src/bolovan-agent.ts",
-      "pattern": "async steer\\(message: string\\): Promise<void>",
+      "pattern": "async steer\\(",
       "title": "02.14 — A message during the Run waits its turn",
       "description": "When no Run is active, steering simply begins one. During an active Run, it joins `queuedSteering`; the loop appends queued messages only after the current assistant round has no tools left to execute. This keeps one readable, serial conversation path."
     },
@@ -97,7 +97,7 @@
       "file": "tests/bolovan-agent.test.ts",
       "pattern": "describe\\(\"BolovanAgent cancellation\"",
       "title": "02.16 — Replay the dangerous ending in tests",
-      "description": "The cancellation tests hold a provider response and a prepared approval open, stop the Run, and then release the late work. The assertions prove that history, events, and running state remain settled. Nearby suites defend the tool-round cap, one provider snapshot per Run, conversation transitions, and skill loading."
+      "description": "The cancellation tests hold a provider response and a prepared approval open, stop the Run, and then release the late work. The assertions prove that history, events, and running state remain settled. Nearby suites defend the tool-round cap, one provider snapshot per Run, conversation transitions, canonical Skill creation, progressive activation, and explicit pre-activation."
     }
   ]
 }

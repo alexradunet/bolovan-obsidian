@@ -85,6 +85,17 @@ export default class BolovanPlugin extends Plugin {
           void this.saveSettings();
         }
       },
+      onSkillDiagnostics: (diagnostics) => {
+        if (diagnostics.length === 0) {
+          return;
+        }
+        const details = diagnostics
+          .map((diagnostic) => `${diagnostic.path}: ${diagnostic.message}`)
+          .join("\n");
+        console.warn("Bolovan excluded invalid skills:\n" + details);
+        new Notice(`Bolovan excluded ${diagnostics.length} invalid skill${diagnostics.length === 1 ? "" : "s"}:\n${details}`);
+      },
+      onSkillWarning: (message) => new Notice(message),
     });
 
     this.registerView(BOLOVAN_CHAT_VIEW, (leaf) => new BolovanChatView(leaf, this));

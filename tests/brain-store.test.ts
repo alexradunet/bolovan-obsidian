@@ -47,3 +47,29 @@ describe("BrainStore device-owned branches", () => {
     expect(store.messages()).toEqual([{ role: "user", content: "remote message" }]);
   });
 });
+
+describe("BrainStore portable instructions", () => {
+  it("renames legacy instructions to root AGENTS.md without changing content", async () => {
+    const app = fakeApp({
+      "Brain/bolovan-brain.json": "{\"format\":1}",
+      "Brain/Instructions.md": "Preserve this exactly.\n",
+    });
+    const store = new BrainStore(app, { folder: "Brain", deviceId: "local" });
+
+    await store.initialize();
+
+    expect(await store.instructions()).toBe("Preserve this exactly.\n");
+    expect(app.vault.getFileByPath("Brain/AGENTS.md")).not.toBeNull();
+    expect(app.vault.getFileByPath("Brain/Instructions.md")).toBeNull();
+  });
+
+  it("creates AGENTS.md for a new Brain", async () => {
+    const app = fakeApp();
+    const store = new BrainStore(app, { folder: "Brain", deviceId: "local" });
+
+    await store.initialize();
+
+    expect(app.vault.getFileByPath("Brain/AGENTS.md")).not.toBeNull();
+    expect(app.vault.getFileByPath("Brain/Instructions.md")).toBeNull();
+  });
+});

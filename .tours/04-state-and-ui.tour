@@ -19,13 +19,13 @@
       "file": "src/brain-store.ts",
       "pattern": "private async ensureStructure\\(\\): Promise<void>",
       "title": "04.03 — Portable state is visible and ordinary",
-      "description": "The store creates the Brain folder, `Skills/`, `Sessions/`, a manifest, and starter `Instructions.md` through Obsidian's Vault API. These deterministic plugin-owned files need no model approval because their destinations and formats are fixed by product code."
+      "description": "The store creates the Brain folder, `Skills/`, `Sessions/`, a manifest, and starter root `AGENTS.md` through Obsidian's Vault API. A legacy `Instructions.md` is renamed without changing its content. These deterministic plugin-owned paths need no model approval because their destinations and formats are fixed by product code."
     },
     {
       "file": "src/brain-store.ts",
       "pattern": "async instructions\\(\\): Promise<string>",
-      "title": "04.04 — Instructions and skills become one prompt layer",
-      "description": "The store reads `Instructions.md`, then sorted Markdown skills under `Skills/`, and caps the joined instruction payload. The Harness reloads this method on every model round, so portable procedural memory is plain vault content rather than a hidden registry."
+      "title": "04.04 — Instructions and skills disclose progressively",
+      "description": "The store reads only complete root `AGENTS.md` as always-on policy. Adjacent Skill methods delegate strict discovery, metadata catalogs, activation, and bounded resources to the Skill module. The Harness reloads that state on every model round without flattening every procedure into the initial prompt."
     },
     {
       "file": "src/brain-store.ts",
@@ -103,7 +103,7 @@
       "file": "src/composer.ts",
       "pattern": "^export class Composer",
       "title": "04.17 — The composer keeps DOM editing local",
-      "description": "The contenteditable composer renders note mentions, serializes them back to `[[wikilinks]]`, and drives a floating picker. It exposes plain text and send intent to the view; note resolution, reads, prompt formatting, and bounds remain in `context.ts`."
+      "description": "The contenteditable composer renders labeled Note and Skill mentions, serializes them back to `[[wikilinks]]`, and drives one floating picker. It exposes plain text and send intent to the view; note attachment and explicit Skill activation policy remain in `context.ts`."
     },
     {
       "file": "src/chat-view.ts",

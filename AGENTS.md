@@ -62,7 +62,7 @@ working on the plugin.
 - `src/bolovan-agent.ts` — harness orchestration and tool loop
 - `src/model-tools.ts` — model-facing tool definitions, invocation, results, and error policy
 - `src/model-adapter.ts` — the OpenAI-compatible model adapter
-- `src/brain-store.ts` — portable brain and conversation persistence
+- `src/brain-store.ts`, `src/skills.ts` — portable brain persistence and canonical Agent Skills
 - `src/vault-tools.ts` — bounded Markdown/Canvas/Bases discovery, inspection, and approval-gated changes
 - `src/structured-files.ts` — Canvas and Bases parsing, bounded inspection, and validation
 - `src/workspace-tools.ts` — active-editor context and safe vault-file navigation
@@ -271,6 +271,10 @@ These are requirements, not suggestions:
   separate approval. It stays in documented locations, and model output never
   chooses its destination or operation.
 - The portable brain is a visible configurable vault folder identified by `bolovan-brain.json`. Secrets, model endpoint configuration, caches, device identity, and approval state stay device-local.
+- Portable general instructions live in root `<Brain>/AGENTS.md`. Agent Skills
+  live in visible `<Brain>/Skills/<name>/SKILL.md`, disclose metadata before
+  instructions, load bounded resources on demand, and never execute bundled
+  scripts or grant tools.
 - Conversation files are device-owned branches. Never append to another device's branch and never automatically merge sync conflicts.
 - Stop ends Bolovan's processing immediately: late provider responses cannot
   update the transcript, execute tools, or resume the run. The portable contract
@@ -299,6 +303,9 @@ These are requirements, not suggestions:
 
 - Test provider normalization, tool-loop stopping, cancellation, exact approvals, stale-write rejection, and device-branch forking through module interfaces.
 - Test bounded and paginated reads, Markdown/Canvas/Bases inspection, structured-file validation, cancellable scans, workspace navigation that preserves the chat leaf, and native copy/trash through module interfaces.
+- Test root Brain instructions, strict Agent Skills discovery, progressive
+  activation, bounded package resources, grouped diagnostics, approved skill
+  authoring, and explicit wikilink activation through module interfaces.
 - Transcript semantics live in `src/transcript.ts` and are tested without an Obsidian runtime.
 - Integration tests use synthetic in-memory adapters and never a personal vault, credential, or provider account.
 - Release smoke tests cover the minimum supported Obsidian version, current

@@ -248,32 +248,33 @@ describe("BolovanAgent response format", () => {
 });
 
 describe("BolovanAgent self-developed skills", () => {
-  it("loads an approved skill on the next model round", async () => {
+  it("creates, catalogs, and activates an approved canonical skill on the next round", async () => {
     const app = fakeApp();
-    const systemPrompts: string[] = [];
+    const requests: Array<{
+      messages: Array<{ role: string; content: string }>;
+      tools: Array<{ function: { name: string } }>;
+    }> = [];
     const skillContent = [
+      "---",
+      JSON.stringify({
+        name: "reusable-review",
+        description: "Reviews completed work. Use after a non-trivial implementation.",
+      }),
+      "---",
       "# Reusable review",
       "",
-      "## When to use",
-      "Use after completing a review.",
-      "",
-      "## Procedure",
       "1. Read the subject.",
       "2. Report concrete findings.",
-      "",
-      "## Pitfalls",
-      "- Do not guess.",
-      "",
-      "## Verification",
-      "Confirm every finding cites observed content.",
+      "3. Confirm every finding cites observed content.",
     ].join("\n");
     let requestCount = 0;
     const transport: RequestTransport = async (request) => {
       requestCount += 1;
       const body = JSON.parse(String(request.body)) as {
         messages: Array<{ role: string; content: string }>;
+        tools: Array<{ function: { name: string } }>;
       };
-      systemPrompts.push(body.messages.find((message) => message.role === "system")?.content ?? "");
+      requests.push(body);
       const message = requestCount === 1
         ? {
             content: "",
@@ -283,13 +284,24 @@ describe("BolovanAgent self-developed skills", () => {
                 name: "vault_change",
                 arguments: JSON.stringify({
                   action: "create",
-                  path: "Brain/Skills/reusable-review.md",
+                  path: "Brain/Skills/reusable-review/SKILL.md",
                   content: skillContent,
                 }),
               },
             }],
           }
-        : { content: "Learned the reusable review skill." };
+        : requestCount === 2
+          ? {
+              content: "",
+              tool_calls: [{
+                id: "activate-skill",
+                function: {
+                  name: "skill_read",
+                  arguments: JSON.stringify({ action: "activate", name: "reusable-review" }),
+                },
+              }],
+            }
+          : { content: "Learned and activated the reusable review skill." };
       return {
         status: 200,
         headers: {},
@@ -309,12 +321,57 @@ describe("BolovanAgent self-developed skills", () => {
 
     await agent.ask("Learn this review procedure for next time.");
 
-    const skill = app.vault.getFileByPath("Brain/Skills/reusable-review.md");
+    const skill = app.vault.getFileByPath("Brain/Skills/reusable-review/SKILL.md");
     expect(skill).not.toBeNull();
     expect(await app.vault.cachedRead(skill!)).toBe(skillContent);
-    expect(systemPrompts[0]).toContain("Brain/Skills/<kebab-case>.md");
-    expect(systemPrompts[0]).toContain("Treat a rewrite as a candidate, not proof");
-    expect(systemPrompts[1]).toContain("## Skill: reusable-review");
-    expect(systemPrompts[1]).toContain(skillContent);
+    expect(requests[0]!.messages[0]!.content).toContain("Brain/Skills/<kebab-case>/SKILL.md");
+    expect(requests[0]!.messages[0]!.content).not.toContain("# Reusable review");
+    expect(requests[1]!.messages[0]!.content).toContain(
+      "- reusable-review: Reviews completed work. Use after a non-trivial implementation.",
+    );
+    expect(requests[1]!.tools.map((tool) => tool.function.name)).toContain("skill_read");
+    expect(requests[2]!.messages.some(
+      (message) => message.role === "tool" && message.content.includes("\"instructions\":\"# Reusable review"),
+    )).toBe(true);
+  });
+
+  it("pre-activates explicit skill mentions before the first provider request", async () => {
+    const app = fakeApp({
+      "Brain/Skills/code-review/SKILL.md": [
+        "---",
+        JSON.stringify({
+          name: "code-review",
+          description: "Reviews code. Use when the user asks for a review.",
+        }),
+        "---",
+        "Review only observed behavior.",
+      ].join("\n"),
+    });
+    let firstSystemPrompt = "";
+    const transport: RequestTransport = async (request) => {
+      const body = JSON.parse(String(request.body)) as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      firstSystemPrompt = body.messages[0]?.content ?? "";
+      return {
+        status: 200,
+        headers: {},
+        arrayBuffer: new ArrayBuffer(0),
+        text: "",
+        json: { choices: [{ message: { content: "done" } }] },
+      };
+    };
+    const agent = new BolovanAgent({
+      app,
+      brainFolder: "Brain",
+      deviceId: "local",
+      provider: () => ({ model: "test-model" }),
+      requestTransport: transport,
+    });
+
+    await agent.ask("Use [[code-review]].", ["code-review", "code-review"]);
+
+    expect(firstSystemPrompt).toContain("## Activated skill: code-review");
+    expect(firstSystemPrompt).toContain("Review only observed behavior.");
   });
 });

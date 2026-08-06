@@ -28,10 +28,32 @@ describe("prepareAttachments", () => {
     );
 
     expect(prepared.notes.map((note) => note.path)).toEqual(["Active.md", "Mentioned.md"]);
-    expect(prepared.warnings).toEqual(["No note found for [[Missing]] — sent without it."]);
+    expect(prepared.warnings).toEqual(["No note or skill found for [[Missing]] — sent without it."]);
     expect(prepared.prompt).toContain("active body");
     expect(prepared.prompt).toContain("mentioned body");
     expect(prepared.prompt.trimEnd().endsWith("Compare [[Mentioned]], [[Active]], and [[Missing]].")).toBe(true);
+  });
+
+  it("activates bare skill mentions without attaching SKILL.md as a note", async () => {
+    const app = fakeApp({
+      "Brain/Skills/code-review/SKILL.md": "skill body",
+      "code-review.md": "ordinary note",
+    });
+    const prepared = await prepareAttachments(
+      app,
+      "Use [[code-review]].",
+      undefined,
+      [{
+        path: "Brain/Skills/code-review/SKILL.md",
+        basename: "code-review",
+        kind: "skill",
+        description: "Review work",
+      }],
+    );
+
+    expect(prepared.skills).toEqual(["code-review"]);
+    expect(prepared.notes).toEqual([]);
+    expect(prepared.prompt).toBe("Use [[code-review]].");
   });
 });
 
@@ -180,5 +202,16 @@ describe("mentionLabel", () => {
 
   it("falls back to the linkpath when the basename is ambiguous", () => {
     expect(mentionLabel(duplicated, [unique, duplicated])).toBe("01-Journal/Today");
+  });
+
+  it("keeps a same-named note unambiguous when a skill owns the bare name", () => {
+    const note = { path: "code-review.md", basename: "code-review", kind: "note" as const };
+    const skill = {
+      path: "Brain/Skills/code-review/SKILL.md",
+      basename: "code-review",
+      kind: "skill" as const,
+    };
+    expect(mentionLabel(skill, [note, skill])).toBe("code-review");
+    expect(mentionLabel(note, [note, skill])).toBe("code-review.md");
   });
 });

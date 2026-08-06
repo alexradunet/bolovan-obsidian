@@ -1,7 +1,14 @@
 import { normalizePath, type App } from "obsidian";
 import type { ModelMessage } from "./model-adapter";
+import {
+  SkillStore,
+  type ActivatedSkill,
+  type SkillDiagnostic,
+  type SkillSummary,
+} from "./skills";
 
 const MANIFEST_NAME = "bolovan-brain.json";
+const MAX_AGENTS_CHARS = 40_000;
 
 interface BrainManifest {
   format: 1;
@@ -33,6 +40,7 @@ export interface BrainStoreOptions {
   activeBranch?: string;
   onFolderResolved?(folder: string): void;
   onActiveBranch?(path: string): void;
+  onSkillDiagnostics?(diagnostics: SkillDiagnostic[]): void;
 }
 
 /**
@@ -44,6 +52,7 @@ export class BrainStore {
   private folder = "";
   private branches = new Map<string, ConversationBranch>();
   private activePath: string | undefined;
+  private skills: SkillStore | undefined;
 
   constructor(
     private readonly app: App,
@@ -53,6 +62,8 @@ export class BrainStore {
   async initialize(): Promise<void> {
     this.folder = await this.resolveFolder();
     await this.ensureStructure();
+    this.skills = new SkillStore(this.app, this.folder, this.options.onSkillDiagnostics);
+    await this.skills.discover();
     await this.reloadBranches();
     if (this.options.activeBranch && this.branches.has(this.options.activeBranch)) {
       this.activePath = this.options.activeBranch;
@@ -133,16 +144,31 @@ export class BrainStore {
 
 
   async instructions(): Promise<string> {
-    const file = this.app.vault.getFileByPath(`${this.folder}/Instructions.md`);
-    const sections = file ? [await this.app.vault.cachedRead(file)] : [];
-    const skillPrefix = `${this.folder}/Skills/`;
-    const skills = this.app.vault.getMarkdownFiles()
-      .filter((candidate) => candidate.path.startsWith(skillPrefix))
-      .sort((a, b) => a.path.localeCompare(b.path));
-    for (const skill of skills) {
-      sections.push(`## Skill: ${skill.basename}\n\n${await this.app.vault.cachedRead(skill)}`);
+    const file = this.app.vault.getFileByPath(`${this.folder}/AGENTS.md`);
+    const content = file ? await this.app.vault.cachedRead(file) : "";
+    if (content.length > MAX_AGENTS_CHARS) {
+      throw new Error(`Brain AGENTS.md exceeds ${MAX_AGENTS_CHARS} characters`);
     }
-    return sections.join("\n\n").slice(0, 120_000);
+    return content;
+  }
+
+  async skillCatalog(): Promise<SkillSummary[]> {
+    return (await this.skillStore().discover()).skills;
+  }
+
+  async activateSkill(name: string): Promise<ActivatedSkill> {
+    return this.skillStore().activate(name);
+  }
+
+  async readSkillResource(name: string, path: string): Promise<string> {
+    return this.skillStore().readResource(name, path);
+  }
+
+  private skillStore(): SkillStore {
+    if (!this.skills) {
+      throw new Error("The Brain is not initialized");
+    }
+    return this.skills;
   }
 
   private async writableBranch(model: string): Promise<ConversationBranch> {
@@ -228,11 +254,17 @@ export class BrainStore {
         `${JSON.stringify(manifest, null, 2)}\n`,
       );
     }
-    if (!this.app.vault.getFileByPath(`${this.folder}/Instructions.md`)) {
-      await this.app.vault.create(
-        `${this.folder}/Instructions.md`,
-        "# Bolovan instructions\n\nHelp the user work with this Obsidian vault. Use [[wikilinks]] when referring to notes. Read before changing, and keep changes focused.\n",
-      );
+    const agentsPath = `${this.folder}/AGENTS.md`;
+    if (!this.app.vault.getFileByPath(agentsPath)) {
+      const legacy = this.app.vault.getFileByPath(`${this.folder}/Instructions.md`);
+      if (legacy) {
+        await this.app.fileManager.renameFile(legacy, agentsPath);
+      } else {
+        await this.app.vault.create(
+          agentsPath,
+          "# Bolovan instructions\n\nHelp the user work with this Obsidian vault. Use [[wikilinks]] when referring to notes. Read before changing, and keep changes focused.\n",
+        );
+      }
     }
   }
 

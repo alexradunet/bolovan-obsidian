@@ -21,6 +21,7 @@ const TOOL_REGISTRY: Record<string, { icon: string; name: string }> = {
   vault_list: { icon: "📁", name: "List folder" },
   vault_change: { icon: "✏️", name: "Change note" },
   web_read: { icon: "🌐", name: "Read webpage" },
+  skill_read: { icon: "📚", name: "Read skill" },
 };
 
 type ToolAction = "preview" | "hide" | "open";
@@ -56,6 +57,7 @@ export class BolovanChatView extends ItemView {
   private sessionSelectEl!: HTMLSelectElement;
   private statsEl!: HTMLElement;
   private pinnedToBottom = true;
+  private skillCandidates: NoteCandidate[] = [];
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -93,6 +95,7 @@ export class BolovanChatView extends ItemView {
       await this.plugin.startAgent();
       if (agent) {
         this.loadConversation(agent.conversation());
+        await this.refreshSkillCandidates();
       }
       await this.refreshStats();
     } catch (error) {
@@ -485,6 +488,7 @@ export class BolovanChatView extends ItemView {
         this.populateSessionPicker(agent.conversation());
       }
       void this.refreshStats().catch(() => undefined);
+      void this.refreshSkillCandidates().catch(() => undefined);
       return;
     }
 
@@ -517,10 +521,11 @@ export class BolovanChatView extends ItemView {
     }
     this.composer.clear();
 
-    const { notes, warnings, prompt } = await prepareAttachments(
+    const { notes, skills, warnings, prompt } = await prepareAttachments(
       this.app,
       text,
       this.plugin.includeActiveNote ? this.plugin.activeNote() : undefined,
+      this.skillCandidates,
     );
     this.transcript.say(text, notes.map((note) => note.path));
     for (const warning of warnings) {
@@ -545,9 +550,9 @@ export class BolovanChatView extends ItemView {
       }
 
       if (agent.status().isRunning) {
-        await agent.steer(prompt);
+        await agent.steer(prompt, skills);
       } else {
-        await agent.ask(prompt);
+        await agent.ask(prompt, skills);
       }
     } catch (error) {
       this.transcript.note(describeError(error));
@@ -556,11 +561,23 @@ export class BolovanChatView extends ItemView {
   }
 
 
-  /** All vault notes, newest first, as mention candidates. */
+  /** All vault notes plus validated Agent Skills, newest notes first. */
   private noteCandidates(): NoteCandidate[] {
-    return [...this.app.vault.getMarkdownFiles()]
+    const notes = [...this.app.vault.getMarkdownFiles()]
+      .filter((file) => !this.skillCandidates.some((skill) => skill.path === file.path))
       .sort((a, b) => b.stat.mtime - a.stat.mtime)
-      .map((file) => ({ path: file.path, basename: file.basename }));
+      .map((file) => ({ path: file.path, basename: file.basename, kind: "note" as const }));
+    return [...notes, ...this.skillCandidates];
+  }
+
+  private async refreshSkillCandidates(): Promise<void> {
+    const skills = await this.plugin.agent?.skillCatalog() ?? [];
+    this.skillCandidates = skills.map((skill) => ({
+      path: skill.path,
+      basename: skill.name,
+      description: skill.description,
+      kind: "skill",
+    }));
   }
 
   private async toggleActiveNoteAttachment(): Promise<void> {

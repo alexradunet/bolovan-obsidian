@@ -13,7 +13,7 @@
 - **Branch** — one device-owned conversation file. Writing a foreign branch first creates a local fork, so sync conflicts are preserved rather than guessed together.
 - **Transcript** — the ordered on-screen rendering of a conversation. Items append and never reorder.
 - **Attachment** — a note whose contents are inlined into one outgoing user message.
-- **Mention** — a `[[note]]` link in the composer that resolves to an attachment at send time.
+- **Mention** — a `[[name]]` link in the composer. An exact valid Skill name activates that Skill; every other resolved Markdown link becomes an Attachment.
 - **Read-only self-inspection** — the agent may read and list its own plugin source under `.obsidian/plugins/bolovan`, but never modify anything under `.obsidian`.
 
-- **Skill** — portable procedural memory stored as Markdown under the brain's `Skills` folder. Bolovan may propose creating or refining a skill from observed reusable experience, but the exact write requires approval and grants no new tool authority.
+- **Skill** — portable procedural memory packaged as `Skills/<name>/SKILL.md` inside the Brain. Its metadata is cataloged first, instructions activate only when relevant, bounded resources remain data, and it grants no new tool authority. Creation and refinement require exact approval.
