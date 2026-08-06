@@ -200,6 +200,42 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+.bolovan-approval__diff {
+  padding: 0;
+}
+
+.bolovan-approval__diff-line {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, 1fr);
+  min-height: 1.45em;
+  padding: 0 var(--size-4-2);
+}
+
+.bolovan-approval__diff-line.is-removed {
+  background: rgba(var(--color-red-rgb), 0.16);
+  color: var(--text-error);
+}
+
+.bolovan-approval__diff-line.is-added {
+  background: rgba(var(--color-green-rgb), 0.16);
+  color: var(--text-success);
+}
+
+.bolovan-approval__diff-line.is-omitted {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.bolovan-approval__diff-marker {
+  user-select: none;
+}
+
+.bolovan-approval__diff-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 
 .bolovan-approval__inspection,
 .bolovan-approval__actions {
@@ -592,13 +628,17 @@
 }
 
 .bolovan-approval-inspection .modal-content {
-  display: flex;
   min-height: 0;
+  overflow: auto;
 }
 
+.bolovan-approval-inspection .bolovan-approval__preview,
 .bolovan-approval-inspection .bolovan-dialog__message {
-  flex: 1 1 auto;
   max-height: none;
+}
+
+.bolovan-approval-inspection__exact {
+  margin-top: var(--size-4-4);
 }
 
 .bolovan-dialog__text {

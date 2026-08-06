@@ -556,6 +556,7 @@ export class VaultTools {
       return {
         title: `Create ${path}`,
         message: exactPreview("create", path, undefined, content),
+        diff: { before: "", after: content },
         apply: async () => {
           if (this.app.vault.getAbstractFileByPath(path)) {
             throw new Error(`${path} appeared after approval; nothing was written`);
@@ -596,6 +597,7 @@ export class VaultTools {
       return {
         title: `${action.charAt(0).toUpperCase()}${action.slice(1)} ${path}`,
         message: exactPreview(action, path, beforeContent, after),
+        diff: { before: beforeContent, after },
         apply: async () => this.commitTextChange(existing, beforeContent, after, action),
       };
     }

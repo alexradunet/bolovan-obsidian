@@ -318,6 +318,10 @@ describe("VaultTools exact changes", () => {
       expected_hash: hash,
     });
     expect(asPreparedChange(prepared).message).toContain("before changed after");
+    expect(asPreparedChange(prepared).diff).toEqual({
+      before: "before middle after",
+      after: "before changed after",
+    });
     await asPreparedChange(prepared).apply();
     expect(await app.vault.cachedRead(app.vault.getFileByPath("Note.md")!)).toBe("before changed after");
 

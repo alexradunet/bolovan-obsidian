@@ -67,13 +67,13 @@
       "file": "src/bolovan-agent.ts",
       "pattern": "private requestApproval\\(change: PreparedChange\\)",
       "title": "02.11 — Approval becomes a pending question",
-      "description": "The Harness creates a request id, stores its Boolean resolver, and sends the exact title and preview to the registered UI responder. With no responder, the safe answer is rejection. The mutation remains suspended until that resolver is answered."
+      "description": "The Harness creates a request id, stores its Boolean resolver, and sends the title, exact operation preview, and optional before/after text to the registered UI responder. With no responder, the safe answer is rejection. The mutation remains suspended until that resolver is answered."
     },
     {
       "file": "src/chat-view.ts",
       "pattern": "private showApproval\\(request: BolovanApprovalRequest\\)",
       "title": "02.12 — The user answers inside the conversation",
-      "description": "The view appends an approval card to the conversation and routes its inline Approve or Decline decision back through the request id. Long previews show a bounded excerpt with an optional full-screen inspection view. The view never commits the change itself; the prepared closure remains inside the capability that created it."
+      "description": "The view appends an approval card to the conversation and routes its inline Approve or Decline decision back through the request id. Text changes render removed lines in red and added lines in green; large diffs stay bounded inline with an optional full-screen inspection view and the exact resulting content. The view never commits the change itself; the prepared closure remains inside the capability that created it."
     },
     {
       "file": "src/bolovan-agent.ts",

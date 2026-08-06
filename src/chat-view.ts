@@ -673,17 +673,13 @@ export class BolovanChatView extends ItemView {
     card.createDiv({ cls: "bolovan-approval__eyebrow", text: "Approval required" });
     card.createEl("h3", { cls: "bolovan-approval__title", text: request.title });
 
-    const excerpt = approvalExcerpt(request.message);
-    card.createEl("pre", {
-      cls: "bolovan-approval__preview",
-      text: excerpt.text,
-    });
+    const previewTruncated = paintApprovalPreview(card, request, true);
 
-    if (excerpt.truncated) {
+    if (previewTruncated) {
       const inspection = card.createDiv({ cls: "bolovan-approval__inspection" });
       inspection.createSpan({
         cls: "bolovan-approval__truncation",
-        text: `Excerpt shown · ${request.message.length.toLocaleString()} characters total`,
+        text: "Excerpt shown",
       });
       const inspect = inspection.createEl("button", { text: "Full-screen" });
       inspect.addEventListener("click", () => {
@@ -905,6 +901,174 @@ class NoteAttachModal extends FuzzySuggestModal<TFile> {
   }
 }
 
+type ApprovalDiffKind = "context" | "removed" | "added" | "omitted";
+
+interface ApprovalDiffLine {
+  kind: ApprovalDiffKind;
+  text: string;
+}
+
+function paintApprovalPreview(
+  host: HTMLElement,
+  request: BolovanApprovalRequest,
+  excerpt: boolean,
+): boolean {
+  if (!request.diff) {
+    const preview = excerpt
+      ? approvalExcerpt(request.message)
+      : { text: request.message, truncated: false };
+    host.createEl("pre", {
+      cls: "bolovan-approval__preview",
+      text: preview.text,
+    });
+    return preview.truncated;
+  }
+
+  const preview = approvalDiffLines(request.diff.before, request.diff.after, excerpt);
+  const diff = host.createDiv({ cls: "bolovan-approval__preview bolovan-approval__diff" });
+  for (const row of preview.lines) {
+    const line = diff.createDiv({
+      cls: `bolovan-approval__diff-line is-${row.kind}`,
+    });
+    line.createSpan({
+      cls: "bolovan-approval__diff-marker",
+      text: row.kind === "added" ? "+" : row.kind === "removed" ? "−" : " ",
+    });
+    line.createSpan({ cls: "bolovan-approval__diff-text", text: row.text });
+  }
+  return preview.truncated;
+}
+
+function approvalDiffLines(
+  before: string,
+  after: string,
+  excerpt: boolean,
+): { lines: ApprovalDiffLine[]; truncated: boolean } {
+  const beforeLines = before ? before.split("\n") : [];
+  const afterLines = after ? after.split("\n") : [];
+  let prefix = 0;
+  while (
+    prefix < beforeLines.length
+    && prefix < afterLines.length
+    && beforeLines[prefix] === afterLines[prefix]
+  ) {
+    prefix += 1;
+  }
+
+  let suffix = 0;
+  while (
+    suffix < beforeLines.length - prefix
+    && suffix < afterLines.length - prefix
+    && beforeLines[beforeLines.length - suffix - 1] === afterLines[afterLines.length - suffix - 1]
+  ) {
+    suffix += 1;
+  }
+
+  if (!excerpt) {
+    return {
+      lines: [
+        ...beforeLines.slice(0, prefix).map((text) => ({ kind: "context" as const, text })),
+        ...beforeLines.slice(prefix, beforeLines.length - suffix).map((text) => ({
+          kind: "removed" as const,
+          text,
+        })),
+        ...afterLines.slice(prefix, afterLines.length - suffix).map((text) => ({
+          kind: "added" as const,
+          text,
+        })),
+        ...afterLines.slice(afterLines.length - suffix).map((text) => ({
+          kind: "context" as const,
+          text,
+        })),
+      ],
+      truncated: false,
+    };
+  }
+
+  const lines: ApprovalDiffLine[] = [];
+  let truncated = false;
+  const prefixStart = Math.max(0, prefix - 2);
+  if (prefixStart > 0) {
+    lines.push({ kind: "omitted", text: `${prefixStart} unchanged lines` });
+    truncated = true;
+  }
+  for (const text of beforeLines.slice(prefixStart, prefix)) {
+    lines.push({ kind: "context", text });
+  }
+
+  const removedStart = prefix;
+  const removedEnd = beforeLines.length - suffix;
+  const addedStart = prefix;
+  const addedEnd = afterLines.length - suffix;
+  const hasRemoved = removedEnd > removedStart;
+  const hasAdded = addedEnd > addedStart;
+  const changedLineLimit = hasRemoved && hasAdded ? 8 : 16;
+  const changedCharacterLimit = hasRemoved && hasAdded ? 900 : 1_800;
+  const removed = boundedDiffLines(
+    beforeLines,
+    removedStart,
+    removedEnd,
+    "removed",
+    changedLineLimit,
+    changedCharacterLimit,
+  );
+  const added = boundedDiffLines(
+    afterLines,
+    addedStart,
+    addedEnd,
+    "added",
+    changedLineLimit,
+    changedCharacterLimit,
+  );
+  lines.push(...removed.lines, ...added.lines);
+  truncated ||= removed.truncated || added.truncated;
+
+  const suffixEnd = Math.min(afterLines.length, afterLines.length - suffix + 2);
+  for (const text of afterLines.slice(afterLines.length - suffix, suffixEnd)) {
+    lines.push({ kind: "context", text });
+  }
+  if (suffixEnd < afterLines.length) {
+    lines.push({
+      kind: "omitted",
+      text: `${afterLines.length - suffixEnd} unchanged lines`,
+    });
+    truncated = true;
+  }
+  return { lines, truncated };
+}
+
+function boundedDiffLines(
+  source: string[],
+  start: number,
+  end: number,
+  kind: "removed" | "added",
+  maxLines: number,
+  maxCharacters: number,
+): { lines: ApprovalDiffLine[]; truncated: boolean } {
+  const lines: ApprovalDiffLine[] = [];
+  let characters = 0;
+  let index = start;
+  while (index < end && lines.length < maxLines && characters < maxCharacters) {
+    const available = maxCharacters - characters;
+    const current = source[index];
+    if (current === undefined) {
+      break;
+    }
+    const text = current.slice(0, available);
+    lines.push({ kind, text });
+    characters += text.length;
+    if (text.length < current.length) {
+      break;
+    }
+    index += 1;
+  }
+  const truncated = index < end;
+  if (truncated) {
+    lines.push({ kind: "omitted", text: `${end - index} ${kind} lines omitted` });
+  }
+  return { lines, truncated };
+}
+
 function approvalExcerpt(message: string): { text: string; truncated: boolean } {
   let end = 0;
   let lines = 1;
@@ -935,9 +1099,16 @@ class BolovanApprovalInspectionModal extends Modal {
   onOpen(): void {
     this.modalEl.addClass("bolovan-approval-inspection");
     this.titleEl.setText(this.request.title);
-    this.contentEl.createEl("pre", {
-      cls: "bolovan-dialog__message",
-      text: this.request.message,
-    });
+    paintApprovalPreview(this.contentEl, this.request, false);
+    if (this.request.diff) {
+      const exact = this.contentEl.createEl("details", {
+        cls: "bolovan-approval-inspection__exact",
+      });
+      exact.createEl("summary", { text: "Exact operation and resulting content" });
+      exact.createEl("pre", {
+        cls: "bolovan-dialog__message",
+        text: this.request.message,
+      });
+    }
   }
 }

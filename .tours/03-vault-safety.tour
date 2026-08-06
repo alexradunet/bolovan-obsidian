@@ -73,7 +73,7 @@
       "file": "src/vault-tools.ts",
       "pattern": "^function exactPreview\\(",
       "title": "03.12 — The preview shows the exact result",
-      "description": "Text proposals display the action, path, and exact full resulting content between clear delimiters. The Harness sends this message unchanged to the approval surface; the inline card shows it directly when short and keeps the exact full text available through explicit full-screen inspection when long."
+      "description": "Text proposals retain the action, path, and exact full resulting content between clear delimiters, alongside the before/after text used for display. The approval card renders that pair as a red/green line diff; a bounded inline excerpt leads to full-screen inspection where the complete diff and exact resulting content remain available."
     },
     {
       "file": "src/vault-tools.ts",

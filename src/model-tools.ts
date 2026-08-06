@@ -12,6 +12,10 @@ export interface ToolResult {
 export interface PreparedChange {
   title: string;
   message: string;
+  diff?: {
+    before: string;
+    after: string;
+  };
   apply(): Promise<ToolResult>;
 }
 

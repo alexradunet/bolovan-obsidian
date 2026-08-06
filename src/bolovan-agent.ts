@@ -35,10 +35,9 @@ export type BolovanEvent =
   | { type: "settled" }
   | { type: "exited"; message: string };
 
-export interface BolovanApprovalRequest {
+export interface BolovanApprovalRequest
+  extends Pick<PreparedChange, "title" | "message" | "diff"> {
   id: string;
-  title: string;
-  message: string;
 }
 
 export interface BolovanAgentStatus {
@@ -294,6 +293,7 @@ export class BolovanAgent {
       id,
       title: change.title,
       message: change.message,
+      diff: change.diff,
     };
     return new Promise<boolean>((resolve) => {
       this.approvals.set(id, resolve);

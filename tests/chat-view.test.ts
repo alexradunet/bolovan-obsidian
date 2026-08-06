@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BolovanChatView } from "../src/chat-view";
+import type { BolovanApprovalRequest } from "../src/bolovan-agent";
 import type { TranscriptToolItem } from "../src/transcript";
 
 class FakeElement {
@@ -95,7 +96,7 @@ class FakeElement {
 }
 
 describe("change approvals", () => {
-  it("renders a long preview inline, offers full-screen inspection, and answers once", () => {
+  it("colors a bounded line diff, offers full-screen inspection, and answers once", () => {
     const responses: Array<{ id: string; approved: boolean }> = [];
     const plugin = {
       agent: {
@@ -108,21 +109,26 @@ describe("change approvals", () => {
     const transcript = new FakeElement();
     const privateView = view as unknown as {
       transcriptEl: HTMLElement;
-      showApproval(request: { id: string; title: string; message: string }): void;
+      showApproval(request: BolovanApprovalRequest): void;
     };
     privateView.transcriptEl = transcript as unknown as HTMLElement;
+    const before = ["# Long note", ...Array.from({ length: 40 }, (_, index) => `old ${index}`), "end"].join("\n");
+    const after = ["# Long note", ...Array.from({ length: 40 }, (_, index) => `new ${index}`), "end"].join("\n");
 
     privateView.showApproval({
       id: "approval-1",
       title: "Replace Long note.md",
       message: "Exact approved operation\n\nREPLACE\nLong note.md\n\n" + "content\n".repeat(500),
+      diff: { before, after },
     });
 
     const card = transcript.querySelector(".bolovan-approval");
-    const preview = card?.querySelector(".bolovan-approval__preview");
+    const removed = card?.querySelector(".is-removed");
+    const added = card?.querySelector(".is-added");
     const inspection = card?.querySelector(".bolovan-approval__inspection");
     const actions = card?.querySelector(".bolovan-approval__actions");
-    expect(preview?.text.length).toBeLessThanOrEqual(2_000);
+    expect(removed?.querySelector(".bolovan-approval__diff-text")?.text).toBe("old 0");
+    expect(added?.querySelector(".bolovan-approval__diff-text")?.text).toBe("new 0");
     expect(inspection?.querySelectorAll("button")[0]?.text).toBe("Full-screen");
 
     actions?.querySelectorAll("button")[1]?.click();
