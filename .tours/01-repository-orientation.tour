@@ -1,0 +1,62 @@
+{
+  "title": "Bolovan: Repository Orientation",
+  "description": "Start here. This tour establishes the product boundary, domain language, runtime entry point, deep modules, and verification shape before following a user request end to end.",
+  "isPrimary": true,
+  "nextTour": "Bolovan: One Harness Run",
+  "steps": [
+    {
+      "file": "README.md",
+      "pattern": "^# Bolovan$",
+      "title": "The product in one sentence",
+      "description": "Bolovan is an Obsidian Community Plugin: the model endpoint, agent loop, vault access, approvals, and chat UI all run inside Obsidian on desktop and mobile. This README describes the user-visible contract; implementation details belong in `src/`."
+    },
+    {
+      "file": "CONTEXT.md",
+      "pattern": "^# Bolovan — domain model$",
+      "title": "Use the repository's domain language",
+      "description": "Read this short glossary before the source. In particular, keep **Run**, **Harness**, **Prepared change**, **Brain**, **Conversation**, **Branch**, and **Transcript** distinct: the code uses each for a different responsibility."
+    },
+    {
+      "file": "docs/adr/0001-native-cross-platform-harness.md",
+      "pattern": "^## Decision$",
+      "title": "The load-bearing architecture decision",
+      "description": "The plugin owns a small cross-platform harness rather than depending on a native process or Node-oriented agent SDK. Two deep seams dominate the design: one normalized OpenAI-compatible model adapter and one bounded model-facing tool interface implemented with Obsidian APIs."
+    },
+    {
+      "file": "src/main.ts",
+      "pattern": "async onload\\(\\): Promise<void>",
+      "title": "Obsidian lifecycle and composition root",
+      "description": "`BolovanPlugin.onload` loads device-local settings, creates a stable device id, constructs the single `BolovanAgent`, and registers the chat view, commands, settings UI, and workspace event. `onunload` disposes that same harness. This is the composition root, not the policy engine."
+    },
+    {
+      "file": "src/bolovan-agent.ts",
+      "pattern": "^export class BolovanAgent",
+      "title": "The orchestration boundary",
+      "description": "`BolovanAgent` owns single-flight Runs, provider calls, tool rounds, approvals, cancellation, and portable conversation persistence. The view talks to its small event-and-command interface instead of coordinating these concerns itself."
+    },
+    {
+      "file": "src/model-tools.ts",
+      "pattern": "^export class ModelTools",
+      "title": "One model-facing capability registry",
+      "description": "Tool definitions and execution stay together. The constructor assembles vault tools plus the `workspace` and `web_read` capabilities, while `execute` normalizes unknown tools, cancellation, thrown errors, direct results, and approval-bearing prepared changes."
+    },
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "^export class BrainStore",
+      "title": "Portable state has one owner",
+      "description": "`BrainStore` owns the visible brain folder, instructions, skills, conversation files, active branch, and the rule that a device writes only its own branch. Provider settings, secrets, device id, and selected branch remain device-local in `main.ts`."
+    },
+    {
+      "file": "src/chat-view.ts",
+      "pattern": "^export class BolovanChatView",
+      "title": "The UI is an adapter",
+      "description": "The sidebar view translates harness events into `Transcript` changes and renders them. It owns DOM concerns, dialogs, scrolling, and session controls; orchestration and transcript semantics remain outside the view."
+    },
+    {
+      "file": "package.json",
+      "pattern": "\"test\": \"npm run build",
+      "title": "The repository's proof command",
+      "description": "`npm test` first typechecks and bundles, then runs Vitest, then loads the built plugin with an Obsidian stub. `main.js` is generated output; the authored runtime is under `src/`."
+    }
+  ]
+}

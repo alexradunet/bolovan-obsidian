@@ -1,0 +1,73 @@
+{
+  "title": "Bolovan: Portable State and Chat Surface",
+  "description": "Trace what syncs, how device-owned branches avoid conflict, how transcript semantics stay independent of DOM rendering, and how notes enter and leave the chat surface.",
+  "nextTour": "Bolovan: Decisions and Verification",
+  "steps": [
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "async initialize\\(\\): Promise<void>",
+      "title": "The brain resolves before use",
+      "description": "Initialization resolves the configured or uniquely discovered manifest folder, creates the brain structure when needed, loads valid conversation branches, restores the selected branch when it exists, and publishes the resolved folder back to device-local settings."
+    },
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "async instructions\\(\\): Promise<string>",
+      "title": "Portable procedural memory is ordinary Markdown",
+      "description": "Each model round loads `Instructions.md` followed by sorted Markdown files under `Skills/`, capped as one instruction payload. A newly approved skill therefore becomes available on the next round without adding code authority or hidden state."
+    },
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "private async writableBranch\\(",
+      "title": "Foreign history forks before writing",
+      "description": "If the active branch belongs to this device, it is writable. Otherwise `writableBranch` copies its messages into a new branch with this device's id and switches active state before append, preserving the foreign branch unchanged instead of attempting an automatic merge."
+    },
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "private async writeActive\\(",
+      "title": "Branch writes use the Vault API",
+      "description": "Existing conversation files are replaced through `Vault.process`, while new branches use `Vault.create`. Paths encode conversation, device, and branch ids under the visible brain's `Sessions/` folder, so sync can carry them as ordinary vault files."
+    },
+    {
+      "file": "tests/brain-store.test.ts",
+      "pattern": "describe\\(\"BrainStore device-owned branches\"",
+      "title": "The branch ownership invariant is executable",
+      "description": "This test opens a remote branch, appends locally, and proves the active path now bears the local device id while the original remote history remains intact."
+    },
+    {
+      "file": "src/transcript.ts",
+      "pattern": "^export class Transcript",
+      "title": "Transcript semantics are a DOM-free module",
+      "description": "`Transcript` owns append-only item ordering, assistant block accumulation and finalization, live tool start/end pairing, session history mapping, attachment display recovery, and synchronous change notification. Rendering cadence is intentionally outside this module."
+    },
+    {
+      "file": "src/chat-view.ts",
+      "pattern": "async onOpen\\(\\): Promise<void>",
+      "title": "The view attaches to the long-lived harness",
+      "description": "On open, the view builds the DOM, subscribes to the transcript and the plugin-lifetime agent, registers the approval responder, initializes the agent, loads the current conversation, and tracks workspace changes for active-note context. Closing unsubscribes and cancels active work."
+    },
+    {
+      "file": "src/chat-view.ts",
+      "pattern": "private onAgentEvent\\(event: BolovanEvent\\)",
+      "title": "Events bridge the Harness and Transcript",
+      "description": "Conversation snapshots replace rendered history; text and tool events flow into `Transcript`; settled and exited events close running UI state. Session summaries refresh after settlement because a Run may have created or forked a Branch."
+    },
+    {
+      "file": "src/composer.ts",
+      "pattern": "^export class Composer",
+      "title": "The composer owns mention editing",
+      "description": "The contenteditable composer serializes note mentions as `[[wikilinks]]`, drives a floating mention picker, and exposes plain text to the view. Note resolution, file reads, prompt formatting, and limits stay in `context.ts`, keeping DOM editing separate from attachment policy."
+    },
+    {
+      "file": "src/chat-view.ts",
+      "pattern": "private async openNote\\(file: TFile\\)",
+      "title": "Navigation preserves the chat",
+      "description": "Transcript links and attachments open in the most recent non-chat leaf, or a new tab when needed. The same user-facing invariant is enforced by the model-facing `workspace` tool."
+    },
+    {
+      "file": "tests/transcript.test.ts",
+      "pattern": "describe\\(\"Transcript live events\"",
+      "title": "Surface semantics are tested without Obsidian",
+      "description": "Transcript tests reconstruct persisted exchanges and drive live event sequences to verify ordering, assistant finalization, tool pairing, failures, targets, notices, and continuity independently of the chat DOM."
+    }
+  ]
+}

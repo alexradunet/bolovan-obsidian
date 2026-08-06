@@ -279,6 +279,7 @@ These are requirements, not suggestions:
   disposable and derived entirely from vault state.
 - Update this file when a durable engineering rule changes.
 - Record load-bearing architectural decisions in `docs/adr/`; do not use ADRs for temporary preferences.
+- Keep `.tours/` truthful: use the `codetour-truth` skill whenever a change touches a tour target or described behavior.
 
 ## Verification
 

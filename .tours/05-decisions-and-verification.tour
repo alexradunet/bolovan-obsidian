@@ -1,0 +1,54 @@
+{
+  "title": "Bolovan: Decisions and Verification",
+  "description": "Finish with the architectural guardrails, test seams, synthetic Obsidian runtime, production bundle, and the maintenance rule that keeps these tours accurate.",
+  "steps": [
+    {
+      "file": "AGENTS.md",
+      "pattern": "^## Order of values$",
+      "title": "Product values are ordered",
+      "description": "When requirements compete, preserve user data and approval boundaries first, then the vital user outcome, cross-platform truthfulness, whole-system comprehensibility, direct Obsidian APIs, and finally minimal implementation and justified optimization. This ordering explains many deliberately narrow capabilities."
+    },
+    {
+      "file": "AGENTS.md",
+      "pattern": "^## Comprehension budget$",
+      "title": "Small enough to fit in one head",
+      "description": "The architecture aims for roughly ten named concepts, at most four production modules on a common action path, and locality around one policy-owning module. Crossing those thresholds triggers simplification review rather than automatic file splitting."
+    },
+    {
+      "file": "docs/adr/0002-read-only-self-inspection.md",
+      "pattern": "^## Decision$",
+      "title": "The hidden-directory exception is documented",
+      "description": "This ADR records why `Vault.adapter` reads and listings are allowed only for Bolovan's own plugin directory, while every hidden-directory write remains sealed. It also records why search and inspection do not inherit that exception."
+    },
+    {
+      "file": "tests/fake-app.ts",
+      "pattern": "^export function fakeApp",
+      "title": "Integration tests use a synthetic Obsidian boundary",
+      "description": "`fakeApp` provides the in-memory Vault, hidden-directory adapter, file manager, and minimal metadata behavior needed by module-interface tests. Tests never inspect a personal vault, use live credentials, or require a provider account."
+    },
+    {
+      "file": "tests/model-adapter.test.ts",
+      "pattern": "^describe\\(\"OpenAI-compatible model adapter\"",
+      "title": "Provider normalization has a focused suite",
+      "description": "The adapter suites assert externally visible request/response policy rather than private helpers: authorization, completion payloads, optional thinking effort, tool-call parsing, usage, model-list normalization, and provider errors."
+    },
+    {
+      "file": "tests/load-built-plugin.cjs",
+      "pattern": "require\\(temporaryBundle\\)",
+      "title": "The production artifact must load",
+      "description": "After unit and integration tests, the smoke test requires the generated `main.js` against a lightweight Obsidian module stub. This catches bundle-time imports or top-level runtime assumptions that source-only tests can miss."
+    },
+    {
+      "file": "esbuild.config.mjs",
+      "pattern": "^const context = await esbuild.context",
+      "title": "One mobile-safe bundle",
+      "description": "The production build bundles browser-targeted ESM from `src/main.ts` into `main.js` while keeping Obsidian external. Runtime source must therefore avoid Node built-ins and native processes promised unavailable on iOS and Android."
+    },
+    {
+      "file": ".agents/skills/codetour-truth/SKILL.md",
+      "pattern": "^# Truth pass$",
+      "title": "Tours are verified maps, not cached claims",
+      "description": "The `codetour-truth` skill runs whenever a tour is created or edited, or when a change touches a tour's target or described behavior. It validates schema and anchors, then re-derives every affected description from current implementation, tests, and accepted decisions before declaring the work complete."
+    }
+  ]
+}

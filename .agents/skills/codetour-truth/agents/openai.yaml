@@ -1,0 +1,3 @@
+interface:
+  display_name: "CodeTour Truth"
+  short_description: "Keep CodeTours verified against current behavior"

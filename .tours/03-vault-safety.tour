@@ -1,0 +1,73 @@
+{
+  "title": "Bolovan: Vault Capabilities and Safety",
+  "description": "Read the bounded tool surface, the read-only self-inspection exception, and the exact-preview/stale-check mutation protocol.",
+  "nextTour": "Bolovan: Portable State and Chat Surface",
+  "steps": [
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "^const VAULT_TOOL_DEFINITIONS",
+      "title": "Five deep vault capabilities",
+      "description": "The model sees `vault_read`, `vault_search`, `vault_list`, `vault_inspect`, and `vault_change`. Each definition uses a closed argument schema and groups related actions behind one capability instead of multiplying shallow tools."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "private async read\\(",
+      "title": "Reads are selectable, bounded, and hash-bearing",
+      "description": "A read accepts exactly one selection mode: Markdown subpath, line bounds, or character pagination. The result includes the whole-file SHA-256, selection metadata, total size, and truncation state; the hash is what later binds a change to the source that was read."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "private async search\\(",
+      "title": "Search remains a cancellable direct scan",
+      "description": "Search scans visible Markdown, Canvas, or Bases files directly and stops at a bounded result count. Markdown-only metadata filters use Obsidian's cache; the loop checks the Run signal so cancellation interrupts content scans. There is deliberately no parallel index or Bases formula evaluator."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "private async inspect\\(",
+      "title": "Inspection uses Obsidian metadata",
+      "description": "Markdown inspection reports bounded properties, headings, blocks, tags, links, embeds, backlinks, unresolved links, and tasks. Canvas and Bases delegate to the structured-file parser while returning the same source hash and file statistics."
+    },
+    {
+      "file": "src/structured-files.ts",
+      "pattern": "^export function inspectStructuredFile",
+      "title": "Canvas and Bases stay source files",
+      "description": "Structured inspection parses bounded summaries for `.canvas` JSON and `.base` YAML without building a second state model. Unknown keys remain in the original source because changes validate the complete proposed text rather than round-tripping through the inspection summary."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "private async prepareChange\\(",
+      "title": "Mutation is preparation, not execution",
+      "description": "`vault_change` supports create, replace, patch, append, copy, move, archive, and trash. It validates inputs and structured formats, computes the exact resulting content or operation, and returns an immutable preview plus an `apply` closure. No write occurs in this phase."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "private async commitTextChange\\(",
+      "title": "Approval is bound to fresh state",
+      "description": "Text commits use `Vault.process` to compare current content with the approved `before` text atomically. A mismatch leaves current content untouched and reports that the file changed after approval. Lifecycle operations similarly recheck the approved SHA-256 and destination state."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "private assertReadableConfigPath\\(",
+      "title": "Self-inspection is narrow and read-only",
+      "description": "Reads and listings under the hidden config directory are accepted only inside `<Vault.configDir>/plugins/bolovan`, through `Vault.adapter`. `vault_inspect` remains visible-vault-only, and `vault_change` refuses every config-directory source or destination before preparing a preview."
+    },
+    {
+      "file": "src/workspace-tools.ts",
+      "pattern": "^export class WorkspaceTools",
+      "title": "Workspace behavior stays one capability",
+      "description": "The `workspace` tool either returns bounded active-editor context or opens a visible vault file. Navigation chooses a leaf without replacing Bolovan's chat surface, preserving the user's conversation while moving through notes."
+    },
+    {
+      "file": "src/web-content.ts",
+      "pattern": "^export class WebContentReader",
+      "title": "Web access is a bounded reader",
+      "description": "`web_read` accepts only HTTP(S), fetches through the injected Obsidian request transport, extracts bounded readable text, and labels page content as untrusted source material. It is not web search and does not grant general network or instruction authority."
+    },
+    {
+      "file": "tests/vault-tools.test.ts",
+      "pattern": "describe\\(\"VaultTools exact changes\"",
+      "title": "Safety properties have behavioral tests",
+      "description": "The vault suites exercise bounded reads and discovery, cancellation, metadata and structured inspection, exact previews, format validation, stale rejection, native copy/move/trash behavior, and the hidden-directory read/write boundary through synthetic Obsidian adapters."
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "title": "Bolovan: One Harness Run",
+  "description": "Follow one message from the composer through attachment preparation, persistence, provider and tool rounds, approval, cancellation, and completion.",
+  "nextTour": "Bolovan: Vault Capabilities and Safety",
+  "steps": [
+    {
+      "file": "src/chat-view.ts",
+      "pattern": "private async send\\(\\): Promise<void>",
+      "title": "A message enters through the view",
+      "description": "The view reads and clears the composer, resolves attachments, appends the visible user item and warnings to the `Transcript`, opens a thinking placeholder, and then calls `ask` or queues `steer` depending on whether a Run is already active."
+    },
+    {
+      "file": "src/context.ts",
+      "pattern": "^export async function prepareAttachments",
+      "title": "Attachments are resolved and bounded",
+      "description": "`prepareAttachments` combines the optional active note with `[[wikilink]]` mentions, resolves them through Obsidian metadata, applies attachment count and character bounds, and returns both display metadata and the exact prompt sent to the Harness."
+    },
+    {
+      "file": "src/bolovan-agent.ts",
+      "pattern": "async ask\\(prompt: string\\): Promise<void>",
+      "title": "A Run is single-flight",
+      "description": "`ask` rejects a concurrent Run, initializes the brain, snapshots the provider configuration once, appends the user message before the remote call, and guarantees that `activeRun` is cleared. Aborts settle quietly; other failures emit `exited` and propagate."
+    },
+    {
+      "file": "src/bolovan-agent.ts",
+      "pattern": "private async runLoop\\(run: ActiveRun\\): Promise<void>",
+      "title": "The readable orchestration loop",
+      "description": "Each round checks cancellation, loads current brain instructions and skills, prepends the system prompt, calls the model, persists the assistant reply, executes every requested tool in order, persists tool results, and repeats. No tool calls and no queued steering ends the Run; twelve tool rounds is a hard stop."
+    },
+    {
+      "file": "src/model-adapter.ts",
+      "pattern": "^class OpenAiCompatibleAdapter implements ModelAdapter",
+      "title": "Provider details stop at the adapter",
+      "description": "The adapter converts normalized messages and tool definitions to a non-streaming Chat Completions request, optionally sends `reasoning_effort`, normalizes assistant text, tool calls, and token usage, and checks the abort signal before and after the request."
+    },
+    {
+      "file": "src/model-tools.ts",
+      "pattern": "^  async execute\\(",
+      "title": "Tool errors become model-readable results",
+      "description": "The registry resolves a tool by name, checks cancellation on both sides of execution, preserves aborts as aborts, and converts ordinary failures into `{ content, isError }`. A successful execution may still return a `PreparedChange` rather than performing a mutation."
+    },
+    {
+      "file": "src/bolovan-agent.ts",
+      "pattern": "private async executeTool\\(",
+      "title": "Prepared changes stop for approval",
+      "description": "Direct tool results pass through. A `PreparedChange` is shown to the approval responder; rejection returns an error result without calling `apply`, while approval calls the change's commit closure and reports any commit-time stale-state failure to the model."
+    },
+    {
+      "file": "src/chat-view.ts",
+      "pattern": "private showApproval\\(request: BolovanApprovalRequest\\)",
+      "title": "The view owns the approval dialog",
+      "description": "The harness supplies an exact title and preview. The view opens an Obsidian modal and returns only the user's Boolean decision through the request id; it does not perform the mutation itself."
+    },
+    {
+      "file": "src/bolovan-agent.ts",
+      "pattern": "async cancel\\(\\): Promise<void>",
+      "title": "Stop closes every continuation",
+      "description": "Cancellation aborts the active Run and resolves every pending approval as rejected. The loop and model/tool boundaries recheck the abort signal so a late provider response cannot append output, execute a tool, or resume processing."
+    },
+    {
+      "file": "tests/bolovan-agent.test.ts",
+      "pattern": "describe\\(\"BolovanAgent cancellation\"",
+      "title": "The Run contract is tested at its interface",
+      "description": "These tests hold a provider response and a prepared approval open, cancel the Run, then prove late work cannot alter history. Adjacent suites cover the tool-round cap, one provider snapshot per Run, coherent conversation transitions, and skill loading on the next round."
+    }
+  ]
+}
