@@ -72,8 +72,8 @@
     {
       "file": "src/chat-view.ts",
       "pattern": "private showApproval\\(request: BolovanApprovalRequest\\)",
-      "title": "02.12 — The user answers in an Obsidian modal",
-      "description": "The view opens the approval dialog and routes the user's decision back through the request id. The view never commits the change itself; it is the human approval surface while the prepared closure remains inside the capability that created it."
+      "title": "02.12 — The user answers inside the conversation",
+      "description": "The view appends an approval card to the conversation and routes its inline Approve or Decline decision back through the request id. Long previews show a bounded excerpt with an optional full-screen inspection view. The view never commits the change itself; the prepared closure remains inside the capability that created it."
     },
     {
       "file": "src/bolovan-agent.ts",

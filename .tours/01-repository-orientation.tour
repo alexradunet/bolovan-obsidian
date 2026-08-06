@@ -1,4 +1,5 @@
 {
+  "$schema": "https://aka.ms/codetour-schema",
   "title": "01 — Meet Bolovan",
   "description": "Begin outside the implementation and move inward. You will meet the product promise, learn the repository's language, see why the architecture exists, and finish with a map of the runtime modules. The next chapter follows one real request through that map.",
   "isPrimary": true,
@@ -62,7 +63,7 @@
       "file": "src/chat-view.ts",
       "pattern": "^export class BolovanChatView",
       "title": "01.10 — Return to the user's sidebar",
-      "description": "The chat view is the other end of the path. It renders a `Transcript`, collects messages, opens approval dialogs, and manages DOM concerns such as scrolling and session controls. It observes the Harness rather than reimplementing its policy."
+      "description": "The chat view is the other end of the path. It renders a `Transcript`, collects messages, keeps approval cards in the conversation, and manages DOM concerns such as scrolling and session controls. It observes the Harness rather than reimplementing its policy."
     },
     {
       "file": "package.json",

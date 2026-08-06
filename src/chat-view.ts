@@ -12,6 +12,8 @@ import { Transcript, type TranscriptItem } from "./transcript";
 export const BOLOVAN_CHAT_VIEW = "bolovan-chat-view";
 
 const RENDER_THROTTLE_MS = 120;
+const APPROVAL_EXCERPT_CHARACTERS = 2_000;
+const APPROVAL_EXCERPT_LINES = 24;
 const THINKING_MARKDOWN = "*Thinking…*";
 const TOOL_REGISTRY: Record<string, { icon: string; name: string }> = {
   vault_read: { icon: "📄", name: "Read note" },
@@ -40,6 +42,7 @@ export class BolovanChatView extends ItemView {
   private readonly assistantPaintScheduled = new Set<string>();
   private unsubscribeAgent: (() => void) | undefined;
   private unsubscribeTranscript: (() => void) | undefined;
+  private readonly pendingApprovalEls = new Map<string, HTMLElement>();
 
   private rootEl!: HTMLElement;
   private transcriptEl!: HTMLElement;
@@ -472,6 +475,7 @@ export class BolovanChatView extends ItemView {
 
     if (event.type === "settled") {
       this.transcript.apply(event);
+      this.cancelPendingApprovalCards();
       this.setRunning(false);
       this.scrollToBottom(true);
       // Runs can create or fork a Branch, so refresh its summaries from the
@@ -655,15 +659,82 @@ export class BolovanChatView extends ItemView {
     await this.send();
   }
 
-  /** Exact-change approval surface for the harness. */
+  /** Keep a prepared change in the conversation while the Harness waits. */
   private showApproval(request: BolovanApprovalRequest): void {
     const agent = this.plugin.agent;
     if (!agent) {
       return;
     }
-    new BolovanApprovalModal(this.app, request, (approved) => {
-      agent.respondApproval(request.id, approved);
-    }).open();
+
+    const card = this.transcriptEl.createDiv({
+      cls: "bolovan-approval",
+      attr: { role: "group", "aria-label": `Approval required: ${request.title}` },
+    });
+    card.createDiv({ cls: "bolovan-approval__eyebrow", text: "Approval required" });
+    card.createEl("h3", { cls: "bolovan-approval__title", text: request.title });
+
+    const excerpt = approvalExcerpt(request.message);
+    card.createEl("pre", {
+      cls: "bolovan-approval__preview",
+      text: excerpt.text,
+    });
+
+    if (excerpt.truncated) {
+      const inspection = card.createDiv({ cls: "bolovan-approval__inspection" });
+      inspection.createSpan({
+        cls: "bolovan-approval__truncation",
+        text: `Excerpt shown · ${request.message.length.toLocaleString()} characters total`,
+      });
+      const inspect = inspection.createEl("button", { text: "Full-screen" });
+      inspect.addEventListener("click", () => {
+        new BolovanApprovalInspectionModal(this.app, request).open();
+      });
+    }
+
+    const actions = card.createDiv({ cls: "bolovan-approval__actions" });
+    const status = actions.createSpan({ cls: "bolovan-approval__status" });
+    const decline = actions.createEl("button", { text: "Decline" });
+    decline.addEventListener("click", () => {
+      this.answerApproval(request, card, false);
+    });
+    const approve = actions.createEl("button", { cls: "mod-cta", text: "Approve" });
+    approve.addEventListener("click", () => {
+      this.answerApproval(request, card, true);
+    });
+
+    status.setAttr("aria-live", "polite");
+    this.pendingApprovalEls.set(request.id, card);
+    decline.focus();
+    this.scrollToBottom(false);
+  }
+
+  private answerApproval(
+    request: BolovanApprovalRequest,
+    card: HTMLElement,
+    approved: boolean,
+  ): void {
+    if (!this.pendingApprovalEls.delete(request.id)) {
+      return;
+    }
+    this.finishApprovalCard(card, approved ? "Approved" : "Declined");
+    this.plugin.agent?.respondApproval(request.id, approved);
+  }
+
+  private cancelPendingApprovalCards(): void {
+    for (const card of this.pendingApprovalEls.values()) {
+      this.finishApprovalCard(card, "Cancelled");
+    }
+    this.pendingApprovalEls.clear();
+  }
+
+  private finishApprovalCard(card: HTMLElement, result: string): void {
+    const actions = card.querySelector(".bolovan-approval__actions");
+    const status = card.querySelector(".bolovan-approval__status");
+    actions?.querySelectorAll("button").forEach((button) => {
+      button.disabled = true;
+    });
+    status?.setText(result);
+    card.addClass("is-answered");
   }
 
   // ----- controls ----------------------------------------------------------
@@ -834,37 +905,39 @@ class NoteAttachModal extends FuzzySuggestModal<TFile> {
   }
 }
 
-/** Obsidian dialog for an exact change approval. */
-class BolovanApprovalModal extends Modal {
+function approvalExcerpt(message: string): { text: string; truncated: boolean } {
+  let end = 0;
+  let lines = 1;
+  while (end < message.length && end < APPROVAL_EXCERPT_CHARACTERS) {
+    if (message.charAt(end) === "\n") {
+      if (lines === APPROVAL_EXCERPT_LINES) {
+        break;
+      }
+      lines += 1;
+    }
+    end += 1;
+  }
+  return {
+    text: message.slice(0, end),
+    truncated: end < message.length,
+  };
+}
+
+/** Full prepared-change inspection, opened only when the user requests it. */
+class BolovanApprovalInspectionModal extends Modal {
   constructor(
     app: App,
     private readonly request: BolovanApprovalRequest,
-    private readonly respond: (approved: boolean) => void,
   ) {
     super(app);
   }
 
   onOpen(): void {
+    this.modalEl.addClass("bolovan-approval-inspection");
     this.titleEl.setText(this.request.title);
     this.contentEl.createEl("pre", {
       cls: "bolovan-dialog__message",
       text: this.request.message,
     });
-
-    const actions = this.contentEl.createDiv({ cls: "bolovan-dialog__actions" });
-    const reject = actions.createEl("button", { text: "Reject" });
-    reject.addEventListener("click", () => this.answer(false));
-    const approve = actions.createEl("button", { cls: "mod-cta", text: "Approve" });
-    approve.addEventListener("click", () => this.answer(true));
-    reject.focus();
-  }
-
-  onClose(): void {
-    this.respond(false);
-  }
-
-  private answer(approved: boolean): void {
-    this.respond(approved);
-    this.close();
   }
 }

@@ -165,6 +165,72 @@
   white-space: pre-wrap;
 }
 
+.bolovan-approval {
+  align-self: stretch;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: var(--radius-m);
+  padding: var(--size-4-3);
+}
+
+.bolovan-approval__eyebrow {
+  color: var(--text-accent);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+}
+
+.bolovan-approval__title {
+  font-size: var(--font-ui-medium);
+  margin: var(--size-4-1) 0 var(--size-4-2);
+}
+
+.bolovan-approval__preview {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.45;
+  margin: 0;
+  max-height: 18rem;
+  overflow: auto;
+  padding: var(--size-4-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bolovan-approval__inspection,
+.bolovan-approval__actions {
+  align-items: center;
+  display: flex;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
+}
+
+.bolovan-approval__inspection {
+  justify-content: space-between;
+}
+
+.bolovan-approval__truncation,
+.bolovan-approval__status {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.bolovan-approval__actions {
+  justify-content: flex-end;
+}
+
+.bolovan-approval__status {
+  margin-right: auto;
+}
+
+.bolovan-approval.is-answered {
+  border-left-color: var(--background-modifier-border);
+}
+
 .bolovan-tool-group {
   align-items: flex-start;
   align-self: stretch;
@@ -516,6 +582,23 @@
   padding: var(--size-4-3);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.modal.bolovan-approval-inspection {
+  height: min(90vh, 64rem);
+  max-height: 90vh;
+  max-width: 90vw;
+  width: min(90vw, 80rem);
+}
+
+.bolovan-approval-inspection .modal-content {
+  display: flex;
+  min-height: 0;
+}
+
+.bolovan-approval-inspection .bolovan-dialog__message {
+  flex: 1 1 auto;
+  max-height: none;
 }
 
 .bolovan-dialog__text {
