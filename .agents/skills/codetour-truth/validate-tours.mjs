@@ -22,7 +22,7 @@ function fail(file, message) {
   failures.push(`${file}: ${message}`);
 }
 
-const paths = collectTours(tourRoot);
+const paths = collectTours(tourRoot).sort();
 if (paths.length === 0) {
   fail(".tours", "no .tour files found");
 }
@@ -64,6 +64,35 @@ for (const [title, count] of titleCounts) {
 const primaryCount = tours.filter(({ tour }) => tour.isPrimary === true).length;
 if (primaryCount !== 1) {
   fail(".tours", `expected exactly one primary tour, found ${primaryCount}`);
+}
+for (const [index, { file, tour }] of tours.entries()) {
+  const chapter = String(index + 1).padStart(2, "0");
+  const filename = file.split("/").at(-1) ?? file;
+  if (!filename.startsWith(`${chapter}-`)) {
+    fail(file, `expected filename to start with ${chapter}-`);
+  }
+  if (typeof tour.title !== "string" || !tour.title.startsWith(`${chapter} — `)) {
+    fail(file, `expected title to start with ${chapter} — `);
+  }
+  if ((index === 0) !== (tour.isPrimary === true)) {
+    fail(file, index === 0 ? "first tour must be primary" : "only the first tour may be primary");
+  }
+
+  const next = tours[index + 1]?.tour.title;
+  if (next === undefined) {
+    if (tour.nextTour !== undefined) {
+      fail(file, "final tour must not define nextTour");
+    }
+  } else if (tour.nextTour !== next) {
+    fail(file, `nextTour must be the next numbered title: ${next}`);
+  }
+
+  for (const [stepIndex, step] of (tour.steps ?? []).entries()) {
+    const stepNumber = `${chapter}.${String(stepIndex + 1).padStart(2, "0")} — `;
+    if (!step || typeof step.title !== "string" || !step.title.startsWith(stepNumber)) {
+      fail(file, `step ${stepIndex + 1} title must start with ${stepNumber}`);
+    }
+  }
 }
 
 for (const { file, tour } of tours) {

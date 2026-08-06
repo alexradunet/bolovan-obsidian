@@ -1,73 +1,121 @@
 {
-  "title": "Bolovan: Vault Capabilities and Safety",
-  "description": "Read the bounded tool surface, the read-only self-inspection exception, and the exact-preview/stale-check mutation protocol.",
-  "nextTour": "Bolovan: Portable State and Chat Surface",
+  "title": "03 — Explore Capabilities Safely",
+  "description": "The request has reached a tool. Slow down and inspect the capability boundary from read-only discovery to approval-gated mutation. Each step gets narrower: dispatch, bounds, structured formats, exact previews, stale checks, hidden-directory rules, workspace navigation, and web reading.",
+  "nextTour": "04 — Follow State Back to the Screen",
   "steps": [
     {
       "file": "src/vault-tools.ts",
       "pattern": "^const VAULT_TOOL_DEFINITIONS",
-      "title": "Five deep vault capabilities",
-      "description": "The model sees `vault_read`, `vault_search`, `vault_list`, `vault_inspect`, and `vault_change`. Each definition uses a closed argument schema and groups related actions behind one capability instead of multiplying shallow tools."
+      "title": "03.01 — The model receives five vault verbs",
+      "description": "The advertised surface is `vault_read`, `vault_search`, `vault_list`, `vault_inspect`, and `vault_change`. Their closed argument schemas group related actions behind a few deep capabilities. The model receives neither an Obsidian `App` nor unrestricted filesystem access."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "^  async execute\\(",
+      "title": "03.02 — One dispatcher names the policy owner",
+      "description": "`VaultTools.execute` checks cancellation and sends each advertised name to the method that owns its policy. Reads return results; `vault_change` returns a `PreparedChange`. An unknown name fails at this boundary rather than falling through to arbitrary behavior."
     },
     {
       "file": "src/vault-tools.ts",
       "pattern": "private async read\\(",
-      "title": "Reads are selectable, bounded, and hash-bearing",
-      "description": "A read accepts exactly one selection mode: Markdown subpath, line bounds, or character pagination. The result includes the whole-file SHA-256, selection metadata, total size, and truncation state; the hash is what later binds a change to the source that was read."
+      "title": "03.03 — A read chooses one window",
+      "description": "A caller may select a Markdown subpath, line bounds, or character pagination, but not combine them. The result carries the whole-file SHA-256, selection details, total size, and truncation state. This gives the model bounded evidence and a source identity for any later change proposal."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "private selectReadContent\\(",
+      "title": "03.04 — Each selector has explicit semantics",
+      "description": "Subpaths resolve through Obsidian's metadata cache, character pages support long single-line Canvas or Bases files, and line ranges remain one-based for the model. Bounds errors are reported instead of silently changing the requested window."
     },
     {
       "file": "src/vault-tools.ts",
       "pattern": "private async search\\(",
-      "title": "Search remains a cancellable direct scan",
-      "description": "Search scans visible Markdown, Canvas, or Bases files directly and stops at a bounded result count. Markdown-only metadata filters use Obsidian's cache; the loop checks the Run signal so cancellation interrupts content scans. There is deliberately no parallel index or Bases formula evaluator."
+      "title": "03.05 — Search is a bounded direct scan",
+      "description": "Search walks visible Markdown, Canvas, or Bases files and stops at a capped result count. Markdown filters use Obsidian metadata for tags, properties, links, and tasks; content scans check the Run signal. There is no parallel index and no duplicate Bases formula evaluator."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "private async list\\(",
+      "title": "03.06 — Listing reveals structure without dumping it",
+      "description": "A listing can stay shallow or walk descendants, optionally include file statistics, and always honor a result limit. Visible vault folders use `Vault` objects; hidden self-inspection takes a separately bounded path in the next step."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "private async listConfig\\(",
+      "title": "03.07 — Hidden listing uses the narrow adapter exception",
+      "description": "Obsidian does not index its configuration directory as normal vault content, so Bolovan uses `Vault.adapter` only after proving the path is inside its own plugin directory. Recursive traversal and statistics remain bounded just like visible listing."
     },
     {
       "file": "src/vault-tools.ts",
       "pattern": "private async inspect\\(",
-      "title": "Inspection uses Obsidian metadata",
-      "description": "Markdown inspection reports bounded properties, headings, blocks, tags, links, embeds, backlinks, unresolved links, and tasks. Canvas and Bases delegate to the structured-file parser while returning the same source hash and file statistics."
+      "title": "03.08 — Inspection turns files into bounded structure",
+      "description": "Markdown inspection combines the source hash and statistics with cached properties, headings, blocks, tags, links, embeds, backlinks, unresolved links, and tasks. Canvas and Bases leave this Markdown path and enter the structured-file parser."
     },
     {
       "file": "src/structured-files.ts",
       "pattern": "^export function inspectStructuredFile",
-      "title": "Canvas and Bases stay source files",
-      "description": "Structured inspection parses bounded summaries for `.canvas` JSON and `.base` YAML without building a second state model. Unknown keys remain in the original source because changes validate the complete proposed text rather than round-tripping through the inspection summary."
+      "title": "03.09 — Canvas and Bases remain source-first",
+      "description": "Inspection parses useful bounded summaries from `.canvas` JSON and `.base` YAML without claiming to own the complete format or evaluate Bases formulas. The original text stays authoritative, so unknown keys are not lost through a summary round trip."
+    },
+    {
+      "file": "src/structured-files.ts",
+      "pattern": "^export function validateStructuredFile",
+      "title": "03.10 — The complete proposal must still parse",
+      "description": "Before a Canvas or Bases change reaches approval, the entire proposed result is validated for its file type. Validation checks the structured shape that Bolovan promises while leaving unknown source keys intact. Ordinary file extensions pass through unchanged."
     },
     {
       "file": "src/vault-tools.ts",
       "pattern": "private async prepareChange\\(",
-      "title": "Mutation is preparation, not execution",
-      "description": "`vault_change` supports create, replace, patch, append, copy, move, archive, and trash. It validates inputs and structured formats, computes the exact resulting content or operation, and returns an immutable preview plus an `apply` closure. No write occurs in this phase."
+      "title": "03.11 — Mutation begins as a proposal",
+      "description": "Create, replace, patch, append, copy, move, archive, and trash all enter `prepareChange`. It validates the requested action, path, expected hash, destination, and complete resulting content before returning a title, exact preview, and `apply` closure. Preparation performs no write."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "^function exactPreview\\(",
+      "title": "03.12 — The preview shows the exact result",
+      "description": "Text proposals display the action, path, and exact full resulting content between clear delimiters. The approval modal receives this message unchanged, so the user approves the concrete file that would exist after the operation rather than a vague intention."
     },
     {
       "file": "src/vault-tools.ts",
       "pattern": "private async commitTextChange\\(",
-      "title": "Approval is bound to fresh state",
-      "description": "Text commits use `Vault.process` to compare current content with the approved `before` text atomically. A mismatch leaves current content untouched and reports that the file changed after approval. Lifecycle operations similarly recheck the approved SHA-256 and destination state."
+      "title": "03.13 — Text commit rechecks inside `Vault.process`",
+      "description": "After approval, `commitTextChange` compares current content with the approved `before` text inside Obsidian's `Vault.process`. If another writer changed the file, the callback preserves current content and the tool reports that nothing was written."
+    },
+    {
+      "file": "src/vault-tools.ts",
+      "pattern": "^async function assertUnchanged\\(",
+      "title": "03.14 — File operations recheck the source hash",
+      "description": "Copy, move, archive, and trash cannot use a text callback, so their closures read the source again and compare SHA-256 before acting. Destinations are also checked again after approval. The prepared operation is valid only while its source and destination state remain fresh."
     },
     {
       "file": "src/vault-tools.ts",
       "pattern": "private assertReadableConfigPath\\(",
-      "title": "Self-inspection is narrow and read-only",
-      "description": "Reads and listings under the hidden config directory are accepted only inside `<Vault.configDir>/plugins/bolovan`, through `Vault.adapter`. `vault_inspect` remains visible-vault-only, and `vault_change` refuses every config-directory source or destination before preparing a preview."
+      "title": "03.15 — Self-inspection stops at Bolovan's directory",
+      "description": "The readable hidden subtree is exactly `<Vault.configDir>/plugins/bolovan`. Other plugins, Obsidian settings, and unrelated hidden files fail this check. `vault_inspect` remains visible-vault-only, while `vault_change` rejects every configuration-directory source or destination even inside Bolovan."
     },
     {
       "file": "src/workspace-tools.ts",
       "pattern": "^export class WorkspaceTools",
-      "title": "Workspace behavior stays one capability",
-      "description": "The `workspace` tool either returns bounded active-editor context or opens a visible vault file. Navigation chooses a leaf without replacing Bolovan's chat surface, preserving the user's conversation while moving through notes."
+      "title": "03.16 — Workspace context is another bounded capability",
+      "description": "The `workspace` tool either reports the active Markdown editor and bounded selection or opens a visible vault file at the user's request. Navigation chooses another leaf rather than replacing Bolovan's chat, preserving the conversation surface while the user moves through notes."
     },
     {
       "file": "src/web-content.ts",
       "pattern": "^export class WebContentReader",
-      "title": "Web access is a bounded reader",
-      "description": "`web_read` accepts only HTTP(S), fetches through the injected Obsidian request transport, extracts bounded readable text, and labels page content as untrusted source material. It is not web search and does not grant general network or instruction authority."
+      "title": "03.17 — Web access reads one supplied URL",
+      "description": "`web_read` accepts one HTTP(S) URL, fetches through the injected Obsidian request transport, extracts bounded readable text, and treats page content as untrusted source material. It does not search the web or turn page text into instructions."
+    },
+    {
+      "file": "tests/vault-tools.test.ts",
+      "pattern": "describe\\(\"VaultTools reads and discovery\"",
+      "title": "03.18 — Prove the read side first",
+      "description": "These tests drive bounded lines and character pages, heading resolution, listing, metadata filters, cancellation, Markdown inspection, and Canvas/Bases discovery through the public `VaultTools` interface. They establish what evidence a model can obtain before proposing a change."
     },
     {
       "file": "tests/vault-tools.test.ts",
       "pattern": "describe\\(\"VaultTools exact changes\"",
-      "title": "Safety properties have behavioral tests",
-      "description": "The vault suites exercise bounded reads and discovery, cancellation, metadata and structured inspection, exact previews, format validation, stale rejection, native copy/move/trash behavior, and the hidden-directory read/write boundary through synthetic Obsidian adapters."
+      "title": "03.19 — Then prove the write boundary",
+      "description": "The exact-change suite exercises previews, structured validation, stale rejection, native lifecycle operations, and the hidden-directory seal with a synthetic Obsidian app. Once those boundaries are clear, continue to chapter 04 to see how state returns to the screen."
     }
   ]
 }

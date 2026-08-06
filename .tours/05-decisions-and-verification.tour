@@ -1,54 +1,96 @@
 {
-  "title": "Bolovan: Decisions and Verification",
-  "description": "Finish with the architectural guardrails, test seams, synthetic Obsidian runtime, production bundle, and the maintenance rule that keeps these tours accurate.",
+  "title": "05 — Learn How to Change Bolovan",
+  "description": "You now understand the running system. End the story from a maintainer's seat: decide what must remain true, find the module that owns a policy, use accepted decisions and behavioral tests as guardrails, prove the production bundle, and keep this walkthrough synchronized with reality.",
   "steps": [
     {
       "file": "AGENTS.md",
       "pattern": "^## Order of values$",
-      "title": "Product values are ordered",
-      "description": "When requirements compete, preserve user data and approval boundaries first, then the vital user outcome, cross-platform truthfulness, whole-system comprehensibility, direct Obsidian APIs, and finally minimal implementation and justified optimization. This ordering explains many deliberately narrow capabilities."
+      "title": "05.01 — Resolve tradeoffs in product order",
+      "description": "A change begins with priorities, not code. User data and approval boundaries come first, followed by the vital outcome, truthful desktop/mobile support, whole-system comprehension, direct Obsidian APIs, minimal machinery, and only then optimization. This order explains why convenience sometimes loses to a narrower capability."
+    },
+    {
+      "file": "AGENTS.md",
+      "pattern": "^## The Pareto rule$",
+      "title": "05.02 — Choose the smallest complete outcome",
+      "description": "Bolovan prefers one excellent common path over a menu of speculative variants. New concepts must earn their maintenance cost, and a feature is complete only when its important end-to-end behavior works. Smallness is a product capability because one maintainer must be able to reason about the whole plugin."
+    },
+    {
+      "file": "AGENTS.md",
+      "pattern": "^## Obsidian first$",
+      "title": "05.03 — Ask Obsidian before building infrastructure",
+      "description": "Before adding a package, wrapper, index, storage system, or lifecycle mechanism, look for the public Obsidian API that already owns the capability. Keep meaningful decision logic testable, but add a boundary only when it isolates real policy rather than ceremony."
+    },
+    {
+      "file": "AGENTS.md",
+      "pattern": "^## Product constraints$",
+      "title": "05.04 — Preserve the non-negotiable boundaries",
+      "description": "The product constraints gather the contracts seen in earlier chapters: mobile-safe runtime, one remote endpoint, single-flight Runs, bounded Obsidian-native tools, exact approval with stale checks, visible portable Brain data, device-owned branches, immediate Stop semantics, and sealed plugin writes."
     },
     {
       "file": "AGENTS.md",
       "pattern": "^## Comprehension budget$",
-      "title": "Small enough to fit in one head",
-      "description": "The architecture aims for roughly ten named concepts, at most four production modules on a common action path, and locality around one policy-owning module. Crossing those thresholds triggers simplification review rather than automatic file splitting."
+      "title": "05.05 — Keep the common path in one head",
+      "description": "A routine action should cross no more than four production modules, and a routine feature should usually change one policy-owning module plus tests. Crossing the budget is an alarm to simplify, not a reason to split code into shallow files."
+    },
+    {
+      "file": "docs/adr/0001-native-cross-platform-harness.md",
+      "pattern": "^## Consequences$",
+      "title": "05.06 — Use ADRs for load-bearing intent",
+      "description": "ADR 0001 records consequences that source code alone cannot explain: one bundle on every target platform, completed-response rendering as the portable guarantee, and excluded capabilities such as shell access. Read an ADR to understand why a seam exists; read current code and tests to understand what it does today."
     },
     {
       "file": "docs/adr/0002-read-only-self-inspection.md",
       "pattern": "^## Decision$",
-      "title": "The hidden-directory exception is documented",
-      "description": "This ADR records why `Vault.adapter` reads and listings are allowed only for Bolovan's own plugin directory, while every hidden-directory write remains sealed. It also records why search and inspection do not inherit that exception."
+      "title": "05.07 — Record narrow exceptions explicitly",
+      "description": "Self-inspection is a useful exception to the hidden-directory boundary, so ADR 0002 names its exact reach: read and list Bolovan's own plugin directory through `Vault.adapter`, while every configuration write remains refused. Exceptions this important should be easy to find and hard to broaden accidentally."
     },
     {
       "file": "tests/fake-app.ts",
       "pattern": "^export function fakeApp",
-      "title": "Integration tests use a synthetic Obsidian boundary",
-      "description": "`fakeApp` provides the in-memory Vault, hidden-directory adapter, file manager, and minimal metadata behavior needed by module-interface tests. Tests never inspect a personal vault, use live credentials, or require a provider account."
+      "title": "05.08 — Exercise policy through a synthetic Obsidian app",
+      "description": "`fakeApp` supplies an in-memory Vault, hidden-directory adapter, file manager, and minimal metadata behavior. Module-interface tests can therefore exercise real Bolovan policy without a personal vault, live credentials, provider account, or undocumented files outside the repository."
     },
     {
       "file": "tests/model-adapter.test.ts",
       "pattern": "^describe\\(\"OpenAI-compatible model adapter\"",
-      "title": "Provider normalization has a focused suite",
-      "description": "The adapter suites assert externally visible request/response policy rather than private helpers: authorization, completion payloads, optional thinking effort, tool-call parsing, usage, model-list normalization, and provider errors."
+      "title": "05.09 — Test seams by their observable contract",
+      "description": "The adapter suite asserts requests, authorization, optional thinking effort, normalized replies, tool calls, usage, model lists, and provider failures without depending on private helpers. The same style appears across VaultTools, BrainStore, Transcript, workspace, context, and Harness tests."
     },
     {
-      "file": "tests/load-built-plugin.cjs",
-      "pattern": "require\\(temporaryBundle\\)",
-      "title": "The production artifact must load",
-      "description": "After unit and integration tests, the smoke test requires the generated `main.js` against a lightweight Obsidian module stub. This catches bundle-time imports or top-level runtime assumptions that source-only tests can miss."
+      "file": "AGENTS.md",
+      "pattern": "^## Verification$",
+      "title": "05.10 — Match proof to the risk",
+      "description": "The verification section names the dangerous contracts that deserve direct coverage: provider normalization, stopping, cancellation, approvals, stale rejection, branch forking, bounded reads, structured files, scans, navigation, and native lifecycle operations. Tests should survive internal refactors while these interfaces remain true."
+    },
+    {
+      "file": "package.json",
+      "pattern": "\"build\": \"tsc --noEmit",
+      "title": "05.11 — Build the authored runtime",
+      "description": "`npm run build` first asks TypeScript to check without emitting, then runs the production esbuild configuration. This catches type and bundle failures before the test runner evaluates behavior."
     },
     {
       "file": "esbuild.config.mjs",
       "pattern": "^const context = await esbuild.context",
-      "title": "One mobile-safe bundle",
-      "description": "The production build bundles browser-targeted ESM from `src/main.ts` into `main.js` while keeping Obsidian external. Runtime source must therefore avoid Node built-ins and native processes promised unavailable on iOS and Android."
+      "title": "05.12 — Produce one browser-targeted plugin bundle",
+      "description": "esbuild starts at `src/main.ts`, emits `main.js`, targets the browser, and leaves Obsidian external. The runtime source must therefore honor the earlier promise: no Node built-ins, native subprocesses, or desktop-only implementation path."
+    },
+    {
+      "file": "package.json",
+      "pattern": "\"test\": \"npm run build",
+      "title": "05.13 — Run the complete proof chain",
+      "description": "`npm test` composes the build, all Vitest suites, and the built-plugin smoke test. The suite is intentionally standalone: repository fixtures and synthetic adapters replace the surrounding vault and external services."
+    },
+    {
+      "file": "tests/load-built-plugin.cjs",
+      "pattern": "require\\(temporaryBundle\\)",
+      "title": "05.14 — Load what Obsidian will actually load",
+      "description": "The final smoke test copies the generated bundle, supplies a lightweight `obsidian` module stub, and requires the bundle. It catches top-level imports and runtime assumptions that source-only tests can miss."
     },
     {
       "file": ".agents/skills/codetour-truth/SKILL.md",
       "pattern": "^# Truth pass$",
-      "title": "Tours are verified maps, not cached claims",
-      "description": "The `codetour-truth` skill runs whenever a tour is created or edited, or when a change touches a tour's target or described behavior. It validates schema and anchors, then re-derives every affected description from current implementation, tests, and accepted decisions before declaring the work complete."
+      "title": "05.15 — Keep the story true",
+      "description": "The final responsibility is this CodeTour itself. The `codetour-truth` skill identifies steps affected by code or behavior changes, re-derives every factual clause from current evidence, preserves numbered story order, validates every anchor, and requires behavior-specific verification. The tour is complete only while it remains a verified map of the repository you just read."
     }
   ]
 }

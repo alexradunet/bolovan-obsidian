@@ -26,7 +26,9 @@ For every affected step:
 2. Split the description into factual claims. Find repository evidence for each claim in current code, an accepted ADR, configuration, or a behavioral test.
 3. Rewrite, narrow, move, or remove every claim whose evidence is missing, contradicted, or only historical. Describe observable responsibility and boundaries; omit implementation trivia that does not aid the walkthrough.
 4. Prefer a stable, unique `pattern` over `line`. Anchor the declaration or heading that owns the described behavior. Keep `line` only when ordinal position itself matters.
-5. Check the step's place in the learning path: prerequisites appear earlier, `nextTour` names an exact existing title, and only the intended entry tour is primary.
+5. Preserve the numbered story: tour filenames and titles use consecutive two-digit chapters (`01`, `02`, …), step titles use consecutive chapter-local numbers (`01.01`, `01.02`, …), and each `nextTour` names the next chapter's exact title.
+6. Keep the learning path narrative and progressively granular. Begin with user intent and vocabulary, follow one concrete flow in chronological order, then deepen into policy, edge boundaries, persistence, and proof. Each step should connect what the reader just learned to why the next location matters.
+7. Check the path's logic: prerequisites appear earlier, only the first chapter is primary, and the final chapter has no `nextTour`.
 
 A comment or older tour is not evidence for current behavior. An accepted ADR supports intent and boundaries; current implementation and tests support what the plugin actually does. Where they disagree, report the discrepancy and make the tour state only what is presently true.
 

@@ -1,67 +1,103 @@
 {
-  "title": "Bolovan: One Harness Run",
-  "description": "Follow one message from the composer through attachment preparation, persistence, provider and tool rounds, approval, cancellation, and completion.",
-  "nextTour": "Bolovan: Vault Capabilities and Safety",
+  "title": "02 — Follow One Request",
+  "description": "A user presses Send. Follow that one request in chronological order: from visible text, through prompt preparation and durable history, into the provider/tool loop, across the approval boundary, and finally back to a settled transcript.",
+  "nextTour": "03 — Explore Capabilities Safely",
   "steps": [
     {
       "file": "src/chat-view.ts",
       "pattern": "private async send\\(\\): Promise<void>",
-      "title": "A message enters through the view",
-      "description": "The view reads and clears the composer, resolves attachments, appends the visible user item and warnings to the `Transcript`, opens a thinking placeholder, and then calls `ask` or queues `steer` depending on whether a Run is already active."
+      "title": "02.01 — The user presses Send",
+      "description": "The journey starts in the sidebar. The view reads and clears the composer, prepares note attachments, immediately adds the user's visible message and warnings to the `Transcript`, opens a thinking placeholder, and only then enters the Harness. The interface responds before the remote endpoint does."
     },
     {
       "file": "src/context.ts",
       "pattern": "^export async function prepareAttachments",
-      "title": "Attachments are resolved and bounded",
-      "description": "`prepareAttachments` combines the optional active note with `[[wikilink]]` mentions, resolves them through Obsidian metadata, applies attachment count and character bounds, and returns both display metadata and the exact prompt sent to the Harness."
+      "title": "02.02 — Mentions become bounded context",
+      "description": "The optional active note and typed `[[wikilink]]` mentions are resolved through Obsidian metadata. Count and character limits are applied here, producing warnings, display metadata, and the exact prompt that will travel to the model. DOM editing remains behind us; this is attachment policy."
+    },
+    {
+      "file": "src/transcript.ts",
+      "pattern": "^  say\\(text: string, attachments\\?: string\\[\\]\\): void",
+      "title": "02.03 — The screen records intent first",
+      "description": "`Transcript.say` finalizes any open assistant block and appends the user item with attachment paths. This item is for the screen: attached note contents are not exposed in the visible message even though they are embedded in the outgoing prompt."
     },
     {
       "file": "src/bolovan-agent.ts",
       "pattern": "async ask\\(prompt: string\\): Promise<void>",
-      "title": "A Run is single-flight",
-      "description": "`ask` rejects a concurrent Run, initializes the brain, snapshots the provider configuration once, appends the user message before the remote call, and guarantees that `activeRun` is cleared. Aborts settle quietly; other failures emit `exited` and propagate."
+      "title": "02.04 — The Harness opens one Run",
+      "description": "`ask` refuses a second active Run, initializes the Brain, snapshots provider configuration once, and installs a fresh `AbortController`. It records a model-change marker when needed, persists the user prompt, and guarantees that its `activeRun` slot is cleared when the journey ends."
+    },
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "async append\\(messages: ModelMessage\\[\\], model: string\\): Promise<void>",
+      "title": "02.05 — History is durable before the call",
+      "description": "Every user, assistant, and tool message reaches `BrainStore.append`. The store obtains a branch this device may write, appends the messages, updates the model and timestamp, derives a title from the first user message, and writes the branch before control moves on."
     },
     {
       "file": "src/bolovan-agent.ts",
-      "pattern": "private async runLoop\\(run: ActiveRun\\): Promise<void>",
-      "title": "The readable orchestration loop",
-      "description": "Each round checks cancellation, loads current brain instructions and skills, prepends the system prompt, calls the model, persists the assistant reply, executes every requested tool in order, persists tool results, and repeats. No tool calls and no queued steering ends the Run; twelve tool rounds is a hard stop."
+      "pattern": "const messages: ModelMessage\\[\\] = \\[",
+      "title": "02.06 — Each round rebuilds its instructions",
+      "description": "Inside `runLoop`, the Harness reloads the Brain's current instructions and skills, builds a system message, and follows it with persisted conversation history. A skill approved during one round can therefore influence the next round without becoming hidden runtime state."
     },
     {
       "file": "src/model-adapter.ts",
       "pattern": "^class OpenAiCompatibleAdapter implements ModelAdapter",
-      "title": "Provider details stop at the adapter",
-      "description": "The adapter converts normalized messages and tool definitions to a non-streaming Chat Completions request, optionally sends `reasoning_effort`, normalizes assistant text, tool calls, and token usage, and checks the abort signal before and after the request."
+      "title": "02.07 — The adapter crosses the network seam",
+      "description": "The adapter turns normalized messages and tools into one non-streaming Chat Completions request. It adds optional `reasoning_effort`, then normalizes assistant text, tool calls, and token usage on the way back. Abort checks surround the request so a late response cannot silently resume a stopped Run."
+    },
+    {
+      "file": "src/bolovan-agent.ts",
+      "pattern": "const assistant: ModelMessage = \\{",
+      "title": "02.08 — The reply enters history before the screen",
+      "description": "The returned assistant message, including any tool calls, is appended to the active branch first. Text is then emitted to the view. Persist-first ordering means the durable Conversation remains the source from which a reopened view can reconstruct what happened."
     },
     {
       "file": "src/model-tools.ts",
       "pattern": "^  async execute\\(",
-      "title": "Tool errors become model-readable results",
-      "description": "The registry resolves a tool by name, checks cancellation on both sides of execution, preserves aborts as aborts, and converts ordinary failures into `{ content, isError }`. A successful execution may still return a `PreparedChange` rather than performing a mutation."
+      "title": "02.09 — A tool call reaches the capability gate",
+      "description": "`ModelTools.execute` resolves the advertised name, checks cancellation before and after invocation, and turns ordinary failures into model-readable error results. Aborts stay aborts. A successful call may still stop at a `PreparedChange` instead of mutating anything."
     },
     {
       "file": "src/bolovan-agent.ts",
       "pattern": "private async executeTool\\(",
-      "title": "Prepared changes stop for approval",
-      "description": "Direct tool results pass through. A `PreparedChange` is shown to the approval responder; rejection returns an error result without calling `apply`, while approval calls the change's commit closure and reports any commit-time stale-state failure to the model."
+      "title": "02.10 — Read results pass; writes pause",
+      "description": "A direct result returns immediately. A `PreparedChange` takes a different branch: the Harness requests approval, reports rejection without calling `apply`, and invokes the commit closure only after approval. Commit-time stale-state failures return to the model as tool errors."
+    },
+    {
+      "file": "src/bolovan-agent.ts",
+      "pattern": "private requestApproval\\(change: PreparedChange\\)",
+      "title": "02.11 — Approval becomes a pending question",
+      "description": "The Harness creates a request id, stores its Boolean resolver, and sends the exact title and preview to the registered UI responder. With no responder, the safe answer is rejection. The mutation remains suspended until that resolver is answered."
     },
     {
       "file": "src/chat-view.ts",
       "pattern": "private showApproval\\(request: BolovanApprovalRequest\\)",
-      "title": "The view owns the approval dialog",
-      "description": "The harness supplies an exact title and preview. The view opens an Obsidian modal and returns only the user's Boolean decision through the request id; it does not perform the mutation itself."
+      "title": "02.12 — The user answers in an Obsidian modal",
+      "description": "The view opens the approval dialog and routes the user's decision back through the request id. The view never commits the change itself; it is the human approval surface while the prepared closure remains inside the capability that created it."
+    },
+    {
+      "file": "src/bolovan-agent.ts",
+      "pattern": "for \\(const call of reply.toolCalls\\)",
+      "title": "02.13 — Results feed the next round",
+      "description": "Tool calls execute in response order. Each start and end is emitted for the Transcript, and each tool result is persisted with its call id. If the assistant requested tools, the loop continues so the next model round can reason over those results; otherwise queued steering is appended before the Run may settle."
+    },
+    {
+      "file": "src/bolovan-agent.ts",
+      "pattern": "async steer\\(message: string\\): Promise<void>",
+      "title": "02.14 — A message during the Run waits its turn",
+      "description": "When no Run is active, steering simply begins one. During an active Run, it joins `queuedSteering`; the loop appends queued messages only after the current assistant round has no tools left to execute. This keeps one readable, serial conversation path."
     },
     {
       "file": "src/bolovan-agent.ts",
       "pattern": "async cancel\\(\\): Promise<void>",
-      "title": "Stop closes every continuation",
-      "description": "Cancellation aborts the active Run and resolves every pending approval as rejected. The loop and model/tool boundaries recheck the abort signal so a late provider response cannot append output, execute a tool, or resume processing."
+      "title": "02.15 — Stop closes every continuation",
+      "description": "Cancellation aborts the active Run and resolves every pending approval as rejected. Signal checks at the loop, provider, and tool boundaries prevent late work from updating history, executing another tool, or reopening the Run."
     },
     {
       "file": "tests/bolovan-agent.test.ts",
       "pattern": "describe\\(\"BolovanAgent cancellation\"",
-      "title": "The Run contract is tested at its interface",
-      "description": "These tests hold a provider response and a prepared approval open, cancel the Run, then prove late work cannot alter history. Adjacent suites cover the tool-round cap, one provider snapshot per Run, coherent conversation transitions, and skill loading on the next round."
+      "title": "02.16 — Replay the dangerous ending in tests",
+      "description": "The cancellation tests hold a provider response and a prepared approval open, stop the Run, and then release the late work. The assertions prove that history, events, and running state remain settled. Nearby suites defend the tool-round cap, one provider snapshot per Run, conversation transitions, and skill loading."
     }
   ]
 }

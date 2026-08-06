@@ -1,73 +1,121 @@
 {
-  "title": "Bolovan: Portable State and Chat Surface",
-  "description": "Trace what syncs, how device-owned branches avoid conflict, how transcript semantics stay independent of DOM rendering, and how notes enter and leave the chat surface.",
-  "nextTour": "Bolovan: Decisions and Verification",
+  "title": "04 — Follow State Back to the Screen",
+  "description": "The tool loop is only half the story. Now follow durable state in the other direction: discover the Brain, create and fork conversation branches, reconstruct a Transcript, and let the chat view paint that semantic record without taking ownership of it.",
+  "nextTour": "05 — Learn How to Change Bolovan",
   "steps": [
     {
       "file": "src/brain-store.ts",
       "pattern": "async initialize\\(\\): Promise<void>",
-      "title": "The brain resolves before use",
-      "description": "Initialization resolves the configured or uniquely discovered manifest folder, creates the brain structure when needed, loads valid conversation branches, restores the selected branch when it exists, and publishes the resolved folder back to device-local settings."
+      "title": "04.01 — The Brain wakes before the conversation",
+      "description": "Initialization resolves the brain folder, ensures its structure, loads valid branch files, restores the selected branch when possible, and reports the resolved folder back to device-local settings. The Harness calls this once before any Run or session transition."
+    },
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "private async resolveFolder\\(\\): Promise<string>",
+      "title": "04.02 — A manifest makes the Brain discoverable",
+      "description": "The configured folder wins when it contains `bolovan-brain.json`. Otherwise a single manifest elsewhere in the vault is auto-discovered; ambiguous or absent manifests fall back to configuration. This lets a synced Brain move without silently guessing between several candidates."
+    },
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "private async ensureStructure\\(\\): Promise<void>",
+      "title": "04.03 — Portable state is visible and ordinary",
+      "description": "The store creates the Brain folder, `Skills/`, `Sessions/`, a manifest, and starter `Instructions.md` through Obsidian's Vault API. These deterministic plugin-owned files need no model approval because their destinations and formats are fixed by product code."
     },
     {
       "file": "src/brain-store.ts",
       "pattern": "async instructions\\(\\): Promise<string>",
-      "title": "Portable procedural memory is ordinary Markdown",
-      "description": "Each model round loads `Instructions.md` followed by sorted Markdown files under `Skills/`, capped as one instruction payload. A newly approved skill therefore becomes available on the next round without adding code authority or hidden state."
+      "title": "04.04 — Instructions and skills become one prompt layer",
+      "description": "The store reads `Instructions.md`, then sorted Markdown skills under `Skills/`, and caps the joined instruction payload. The Harness reloads this method on every model round, so portable procedural memory is plain vault content rather than a hidden registry."
+    },
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "async newConversation\\(model: string\\): Promise<string>",
+      "title": "04.05 — A new Conversation starts on this device",
+      "description": "A fresh conversation and branch receive random ids, this device's id, timestamps, model, empty messages, and a temporary title. The branch path is selected and created immediately under `Sessions/`, making the empty session durable before its first prompt."
+    },
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "async append\\(messages: ModelMessage\\[\\], model: string\\): Promise<void>",
+      "title": "04.06 — Appending also maintains branch metadata",
+      "description": "Append obtains a writable branch, extends its ordered messages, records the model and modification time, and replaces the temporary title with text derived from the first user message. One method keeps conversation content and its summary metadata coherent."
     },
     {
       "file": "src/brain-store.ts",
       "pattern": "private async writableBranch\\(",
-      "title": "Foreign history forks before writing",
-      "description": "If the active branch belongs to this device, it is writable. Otherwise `writableBranch` copies its messages into a new branch with this device's id and switches active state before append, preserving the foreign branch unchanged instead of attempting an automatic merge."
+      "title": "04.07 — A foreign Branch forks before writing",
+      "description": "A branch owned by this device is returned directly. A foreign branch is copied into a new branch with a new branch id and this device's id, then selected before append. The remote history stays unchanged; sync conflicts are preserved as parallel histories instead of being guessed together."
     },
     {
       "file": "src/brain-store.ts",
       "pattern": "private async writeActive\\(",
-      "title": "Branch writes use the Vault API",
-      "description": "Existing conversation files are replaced through `Vault.process`, while new branches use `Vault.create`. Paths encode conversation, device, and branch ids under the visible brain's `Sessions/` folder, so sync can carry them as ordinary vault files."
+      "title": "04.08 — Existing Branches write through `Vault.process`",
+      "description": "New paths use `Vault.create`; existing conversation files use `Vault.process`. Filenames encode conversation, device, and branch ids under the visible `Sessions/` folder, allowing Obsidian Sync to transport each device-owned history as an ordinary file."
+    },
+    {
+      "file": "src/brain-store.ts",
+      "pattern": "private async reloadBranches\\(\\): Promise<void>",
+      "title": "04.09 — Partial sync files remain on disk",
+      "description": "Reload scans session JSON files, accepts only format-1 objects with message arrays, and ignores malformed or partial files without deleting them. A sync-conflicted artifact stays available for recovery even when it cannot become an active Branch."
     },
     {
       "file": "tests/brain-store.test.ts",
       "pattern": "describe\\(\"BrainStore device-owned branches\"",
-      "title": "The branch ownership invariant is executable",
-      "description": "This test opens a remote branch, appends locally, and proves the active path now bears the local device id while the original remote history remains intact."
+      "title": "04.10 — Watch the fork invariant execute",
+      "description": "The test opens a branch owned by a remote device, appends a local assistant message, and proves that the active path now belongs to the local device while the original remote branch still contains only its original history."
     },
     {
       "file": "src/transcript.ts",
       "pattern": "^export class Transcript",
-      "title": "Transcript semantics are a DOM-free module",
-      "description": "`Transcript` owns append-only item ordering, assistant block accumulation and finalization, live tool start/end pairing, session history mapping, attachment display recovery, and synchronous change notification. Rendering cadence is intentionally outside this module."
+      "title": "04.11 — Durable messages become semantic items",
+      "description": "`Transcript` is the DOM-free record used by the chat surface. It owns append-only item order, assistant accumulation and finalization, tool pairing, history mapping, attachment display recovery, and synchronous change notifications. Painting remains somebody else's job."
+    },
+    {
+      "file": "src/transcript.ts",
+      "pattern": "^  loadHistory\\(messages: TranscriptHistoryMessage\\[\\]\\): void",
+      "title": "04.12 — Switching sessions reconstructs the screen",
+      "description": "`loadHistory` clears the current semantic items and replays persisted messages in order. User prompts recover visible text and attachment paths, assistant tool calls become running tool items, and later tool messages pair by call id and finalize them."
+    },
+    {
+      "file": "src/transcript.ts",
+      "pattern": "^  apply\\(event: BolovanEvent\\): void",
+      "title": "04.13 — Live events use the same semantics",
+      "description": "Text grows one open assistant item; a tool start finalizes that block and appends a running tool; a tool end completes the matching item; settlement closes the remaining assistant block; and an exited event becomes a visible system note. The rules do not depend on DOM timing."
     },
     {
       "file": "src/chat-view.ts",
       "pattern": "async onOpen\\(\\): Promise<void>",
-      "title": "The view attaches to the long-lived harness",
-      "description": "On open, the view builds the DOM, subscribes to the transcript and the plugin-lifetime agent, registers the approval responder, initializes the agent, loads the current conversation, and tracks workspace changes for active-note context. Closing unsubscribes and cancels active work."
+      "title": "04.14 — The view attaches to long-lived state",
+      "description": "Opening the chat builds its layout, subscribes to Transcript and Harness events, registers the approval responder, starts the Brain, loads the current Conversation, and tracks workspace changes for active-note context. Closing reverses subscriptions and cancels active work."
+    },
+    {
+      "file": "src/chat-view.ts",
+      "pattern": "private loadConversation\\(snapshot: BolovanConversationSnapshot\\)",
+      "title": "04.15 — A snapshot replaces one rendered session",
+      "description": "The view clears its element maps, rebuilds an empty transcript surface, asks `Transcript` to load persisted messages, repaints every resulting item, updates the session picker, and restores scroll and empty-state controls. Session switching is a coherent snapshot transition, not a stream of partial mutations."
     },
     {
       "file": "src/chat-view.ts",
       "pattern": "private onAgentEvent\\(event: BolovanEvent\\)",
-      "title": "Events bridge the Harness and Transcript",
-      "description": "Conversation snapshots replace rendered history; text and tool events flow into `Transcript`; settled and exited events close running UI state. Session summaries refresh after settlement because a Run may have created or forked a Branch."
+      "title": "04.16 — Harness events cross one bridge",
+      "description": "Conversation snapshots take the replacement path; text and tool events flow through `Transcript.apply`; settled and exited events close running UI state. After settlement, session summaries refresh because the completed Run may have created or forked a Branch."
     },
     {
       "file": "src/composer.ts",
       "pattern": "^export class Composer",
-      "title": "The composer owns mention editing",
-      "description": "The contenteditable composer serializes note mentions as `[[wikilinks]]`, drives a floating mention picker, and exposes plain text to the view. Note resolution, file reads, prompt formatting, and limits stay in `context.ts`, keeping DOM editing separate from attachment policy."
+      "title": "04.17 — The composer keeps DOM editing local",
+      "description": "The contenteditable composer renders note mentions, serializes them back to `[[wikilinks]]`, and drives a floating picker. It exposes plain text and send intent to the view; note resolution, reads, prompt formatting, and bounds remain in `context.ts`."
     },
     {
       "file": "src/chat-view.ts",
       "pattern": "private async openNote\\(file: TFile\\)",
-      "title": "Navigation preserves the chat",
-      "description": "Transcript links and attachments open in the most recent non-chat leaf, or a new tab when needed. The same user-facing invariant is enforced by the model-facing `workspace` tool."
+      "title": "04.18 — Links leave the chat visible",
+      "description": "When the user follows a transcript link or attachment, the note opens in the most recent non-chat leaf or a new tab. The chat leaf survives, matching the navigation invariant offered to the model through the `workspace` tool."
     },
     {
       "file": "tests/transcript.test.ts",
       "pattern": "describe\\(\"Transcript live events\"",
-      "title": "Surface semantics are tested without Obsidian",
-      "description": "Transcript tests reconstruct persisted exchanges and drive live event sequences to verify ordering, assistant finalization, tool pairing, failures, targets, notices, and continuity independently of the chat DOM."
+      "title": "04.19 — Prove the screen story without a screen",
+      "description": "Transcript tests replay persisted exchanges and live event sequences to defend ordering, assistant finalization, tool pairing, targets, failures, notices, and continuity without an Obsidian DOM. Chapter 05 now shows how these tests, ADRs, and engineering rules govern future changes."
     }
   ]
 }
